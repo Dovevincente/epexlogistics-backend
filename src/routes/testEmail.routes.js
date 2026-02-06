@@ -10,7 +10,7 @@ const router = express.Router();
 router.get("/email", async (req, res) => {
   try {
     await sendEmail({
-      to: "YOUR_EMAIL@gmail.com", // 👈 change this to your own email
+      to: "admin@epexlogistics.com", // 👈 change this to your own email
       subject: "Epex Logistics – Email Test",
       html: `
         <h2>🎉 Email setup successful</h2>

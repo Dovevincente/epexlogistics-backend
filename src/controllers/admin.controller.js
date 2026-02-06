@@ -20,9 +20,7 @@ export const getAdminStats = async (req, res) => {
     const recentShipments = await Shipment.find()
       .sort({ createdAt: -1 })
       .limit(5)
-      .select(
-        "trackingNumber destination status createdAt sender receiver"
-      );
+      .select("trackingNumber destination status createdAt sender receiver");
 
     res.json({
       stats: {
@@ -61,16 +59,18 @@ export const getAllShipments = async (req, res) => {
 };
 
 /* ======================================================
-   UPDATE SHIPMENT STATUS + LOCATION (ADMIN)
+   UPDATE SHIPMENT STATUS + LOCATION + EMAIL NOTIFY
 ====================================================== */
 export const updateShipmentStatus = async (req, res) => {
   try {
     const { status, city, message } = req.body;
 
+    // MUST MATCH Shipment model
     const allowedStatuses = [
-      "Pending",
+      "Booked",
+      "Picked Up",
       "In Transit",
-      "Custom Clearance",
+      "Customs Clearance",
       "On Hold",
       "Out for Delivery",
       "Delivered",
@@ -98,8 +98,7 @@ export const updateShipmentStatus = async (req, res) => {
 
     if (shipment.isDelivered) {
       return res.status(400).json({
-        message:
-          "Shipment has already been delivered. Updates are locked.",
+        message: "Shipment has already been delivered. Updates are locked.",
       });
     }
 
@@ -107,6 +106,7 @@ export const updateShipmentStatus = async (req, res) => {
 
     if (status === "Delivered") {
       shipment.isDelivered = true;
+      shipment.deliveredAt = new Date();
     }
 
     await shipment.save();
@@ -119,8 +119,45 @@ export const updateShipmentStatus = async (req, res) => {
       message: message || status,
     });
 
+    /* ================= EMAIL BOTH SENDER & RECEIVER ================= */
+
+    const emailHtml = `
+      <div style="font-family:Arial;line-height:1.6">
+        <h2>📦 Shipment Update</h2>
+
+        <p><strong>Tracking Number:</strong> ${shipment.trackingNumber}</p>
+        <p><strong>Status:</strong> ${status}</p>
+        <p><strong>Current Location:</strong> ${city}</p>
+        <p>${message || status}</p>
+
+        <hr/>
+
+        <p>
+          Track shipment:<br/>
+          https://epexlogistics.com/track
+        </p>
+
+        <br/>
+        <strong>Epex Logistics</strong><br/>
+        support@epexlogistics.com
+      </div>
+    `;
+
+    try {
+      await sendEmail({
+        to: [
+          shipment.sender.email,
+          shipment.receiver.email
+        ],
+        subject: `Shipment Update – ${shipment.trackingNumber}`,
+        html: emailHtml,
+      });
+    } catch (emailErr) {
+      console.error("Shipment email failed:", emailErr.message);
+    }
+
     res.json({
-      message: "Shipment status updated successfully",
+      message: "Shipment updated and email notifications sent",
       shipment,
     });
   } catch (error) {
@@ -151,7 +188,7 @@ export const getAllQuotes = async (req, res) => {
 };
 
 /* ======================================================
-   ADMIN REPLY TO CONTACT MESSAGE ✅ (FIXED)
+   ADMIN REPLY TO CONTACT MESSAGE
 ====================================================== */
 export const replyToContactMessage = async (req, res) => {
   try {
@@ -172,33 +209,27 @@ export const replyToContactMessage = async (req, res) => {
       });
     }
 
-    /* ================= SAVE REPLY ================= */
     message.isRead = true;
     message.adminReply = reply;
     message.repliedAt = new Date();
     await message.save();
 
-    /* ================= EMAIL CUSTOMER ================= */
     try {
       await sendEmail({
         to: message.email,
         subject: "Reply from Epex Logistics",
         html: `
-          <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-            <h3 style="color:#165587;">Epex Logistics Support</h3>
+          <div style="font-family: Arial;">
+            <h3>Epex Logistics Support</h3>
             <p>Hello ${message.name},</p>
             <p>${reply}</p>
-            <hr />
-            <p style="font-size:14px;color:#555;">
-              📦 <strong>Epex Logistics</strong><br/>
-              Fast. Reliable. Global Logistics.
-            </p>
+            <hr/>
+            <strong>Epex Logistics</strong>
           </div>
         `,
       });
     } catch (emailError) {
-      console.error("⚠ Reply email failed:", emailError.message);
-      // Email failure should NOT block API success
+      console.error("Reply email failed:", emailError.message);
     }
 
     res.json({
