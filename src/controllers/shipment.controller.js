@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import Shipment from "../models/Shipment.js";
 import Tracking from "../models/Tracking.js";
 import generateTracking from "../utils/generateTracking.js";
+import { sendEmail } from "../utils/email.js";
 
 /* ======================================================
    🌍 SIMPLE GEOCODING HELPER (OpenStreetMap)
@@ -187,7 +188,7 @@ export const createShipment = async (req, res) => {
 
       invoice: {
         subtotal,
-        vatPercent, // ✅ STORED
+        vatPercent,
         tax,
         discount,
         total,
@@ -220,8 +221,44 @@ export const createShipment = async (req, res) => {
       country,
       lat,
       lng,
-      message: "Shipment booked",
+      message: "Shipment booked. Thank you for choosing Epex Logistics",
     });
+
+    /* ================= EMAIL SENDER ONLY ================= */
+    if (shipment.sender.email) {
+      try {
+        await sendEmail({
+          to: shipment.sender.email,
+          subject: `Shipment Booked – ${trackingNumber}`,
+          html: `
+            <div style="font-family:Arial;line-height:1.6">
+              <h2>📦 Shipment Successfully Booked</h2>
+
+              <p>Hello ${shipment.sender.name},</p>
+
+              <p>Your shipment has been created successfully.</p>
+
+              <p><strong>Tracking Number:</strong> ${trackingNumber}</p>
+              <p><strong>Route:</strong> ${origin} → ${destination}</p>
+              <p><strong>Estimated Delivery:</strong> ${estimatedDelivery.toDateString()}</p>
+
+              <hr/>
+
+              <p>
+                Track your shipment anytime:<br/>
+                https://epexlogistics.com/track
+              </p>
+
+              <br/>
+              <strong>Epex Logistics</strong><br/>
+              support@epexlogistics.com
+            </div>
+          `,
+        });
+      } catch (emailErr) {
+        console.error("Shipment creation email failed:", emailErr.message);
+      }
+    }
 
     res.status(201).json({
       message: "Shipment created successfully",
@@ -345,6 +382,12 @@ export const updateShipmentStatus = async (req, res) => {
       return res.status(404).json({ message: "Shipment not found" });
     }
 
+    if (shipment.isDelivered) {
+      return res.status(400).json({
+        message: "Shipment already delivered. Updates locked.",
+      });
+    }
+
     const coordinates =
       lat !== undefined && lng !== undefined
         ? { lat, lng }
@@ -362,7 +405,48 @@ export const updateShipmentStatus = async (req, res) => {
     });
 
     shipment.status = status;
+
+    if (status === "Delivered") {
+      shipment.isDelivered = true;
+      shipment.deliveredAt = new Date();
+    }
+
     await shipment.save();
+
+    /* ================= EMAIL BOTH SENDER & RECEIVER ================= */
+
+    try {
+      await sendEmail({
+        to: [
+          shipment.sender.email,
+          shipment.receiver.email
+        ],
+        subject: `Shipment Update – ${shipment.trackingNumber}`,
+        html: `
+          <div style="font-family:Arial;line-height:1.6">
+            <h2>📦 Shipment Status Updated</h2>
+
+            <p><strong>Tracking Number:</strong> ${shipment.trackingNumber}</p>
+            <p><strong>Status:</strong> ${status}</p>
+            <p><strong>Location:</strong> ${city}, ${country}</p>
+            <p>${message || status}</p>
+
+            <hr/>
+
+            <p>
+              Track shipment anytime:<br/>
+              https://epexlogistics.com/track
+            </p>
+
+            <br/>
+            <strong>Epex Logistics</strong><br/>
+            support@epexlogistics.com
+          </div>
+        `,
+      });
+    } catch (emailErr) {
+      console.error("Shipment email failed:", emailErr.message);
+    }
 
     res.json({
       message: "Shipment status updated successfully",
@@ -373,6 +457,7 @@ export const updateShipmentStatus = async (req, res) => {
     res.status(500).json({ message: "Failed to update shipment" });
   }
 };
+
 
 /* ======================================================
    DELETE SHIPMENT (ADMIN)
