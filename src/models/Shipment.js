@@ -2,7 +2,9 @@ import mongoose from "mongoose";
 
 const shipmentSchema = new mongoose.Schema(
   {
-    /* ================= TRACKING ================= */
+    /* ======================================================
+       TRACKING
+    ====================================================== */
     trackingNumber: {
       type: String,
       required: true,
@@ -11,7 +13,9 @@ const shipmentSchema = new mongoose.Schema(
       trim: true,
     },
 
-    /* ================= LINKED CUSTOMER ================= */
+    /* ======================================================
+       LINKED CUSTOMER
+    ====================================================== */
     customer: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -19,7 +23,9 @@ const shipmentSchema = new mongoose.Schema(
       index: true,
     },
 
-    /* ================= SOURCE QUOTE ================= */
+    /* ======================================================
+       SOURCE QUOTE
+    ====================================================== */
     quote: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Quote",
@@ -27,33 +33,143 @@ const shipmentSchema = new mongoose.Schema(
       index: true,
     },
 
-    /* ================= SENDER ================= */
+    /* ======================================================
+       SENDER
+    ====================================================== */
     sender: {
-      name: { type: String, required: true, trim: true },
-      email: { type: String, lowercase: true, trim: true },
-      phone: { type: String, required: true, trim: true },
-      address: { type: String, required: true, trim: true },
+      name: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+
+      email: {
+        type: String,
+        lowercase: true,
+        trim: true,
+        default: "",
+      },
+
+      phone: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+
+      address: {
+        type: String,
+        required: true,
+        trim: true,
+      },
     },
 
-    /* ================= RECEIVER ================= */
+    /* ======================================================
+       RECEIVER
+    ====================================================== */
     receiver: {
-      name: { type: String, required: true, trim: true },
-      email: { type: String, lowercase: true, trim: true },
-      phone: { type: String, required: true, trim: true },
-      address: { type: String, required: true, trim: true },
+      name: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+
+      email: {
+        type: String,
+        lowercase: true,
+        trim: true,
+        default: "",
+      },
+
+      phone: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+
+      address: {
+        type: String,
+        required: true,
+        trim: true,
+      },
     },
 
-    /* ================= ROUTE ================= */
-    origin: { type: String, required: true, trim: true },
-    destination: { type: String, required: true, trim: true },
-    city: { type: String, required: true, trim: true },
-    country: { type: String, required: true, trim: true },
+    /* ======================================================
+       ROUTE
+    ====================================================== */
+    origin: {
+      type: String,
+      required: true,
+      trim: true,
+    },
 
-    /* ================= CARGO ================= */
-    weight: { type: Number, required: true, min: 0.1 },
-    quantity: { type: Number, default: 1, min: 1 },
+    destination: {
+      type: String,
+      required: true,
+      trim: true,
+    },
 
-    /* ================= DELIVERY ================= */
+    /* ======================================================
+       CURRENT LOCATION
+    ====================================================== */
+    city: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    country: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    currentLocation: {
+      city: {
+        type: String,
+        default: "",
+        trim: true,
+      },
+
+      country: {
+        type: String,
+        default: "",
+        trim: true,
+      },
+
+      lat: {
+        type: Number,
+        default: null,
+      },
+
+      lng: {
+        type: Number,
+        default: null,
+      },
+
+      updatedAt: {
+        type: Date,
+        default: null,
+      },
+    },
+
+    /* ======================================================
+       CARGO
+    ====================================================== */
+    weight: {
+      type: Number,
+      required: true,
+      min: 0.1,
+    },
+
+    quantity: {
+      type: Number,
+      default: 1,
+      min: 1,
+    },
+
+    /* ======================================================
+       DELIVERY
+    ====================================================== */
     deliveryRange: {
       type: String,
       required: true,
@@ -65,14 +181,18 @@ const shipmentSchema = new mongoose.Schema(
       required: true,
     },
 
-    /* ================= PRICE ================= */
+    /* ======================================================
+       PRICE
+    ====================================================== */
     price: {
       type: Number,
       required: true,
       min: 0,
     },
 
-    /* ================= INVOICE BREAKDOWN ================= */
+    /* ======================================================
+       INVOICE
+    ====================================================== */
     invoice: {
       subtotal: {
         type: Number,
@@ -80,7 +200,6 @@ const shipmentSchema = new mongoose.Schema(
         min: 0,
       },
 
-      /* ✅ ADDED — REQUIRED BY CONTROLLER */
       vatPercent: {
         type: Number,
         default: 0,
@@ -92,16 +211,19 @@ const shipmentSchema = new mongoose.Schema(
         default: 0,
         min: 0,
       },
+
       discount: {
         type: Number,
         default: 0,
         min: 0,
       },
+
       total: {
         type: Number,
         default: 0,
         min: 0,
       },
+
       currency: {
         type: String,
         default: "$",
@@ -109,17 +231,28 @@ const shipmentSchema = new mongoose.Schema(
       },
     },
 
-    /* ================= PAYMENT & INVOICE ================= */
+    /* ======================================================
+       PAYMENT
+    ====================================================== */
     paymentMethod: {
       type: String,
-      enum: ["Cash", "Bank Transfer", "Card", "Wallet"],
+      enum: [
+        "Cash",
+        "Bank Transfer",
+        "Card",
+        "Wallet",
+      ],
       default: "Cash",
       trim: true,
     },
 
     invoiceStatus: {
       type: String,
-      enum: ["Unpaid", "Paid", "Pending"],
+      enum: [
+        "Unpaid",
+        "Paid",
+        "Pending",
+      ],
       default: "Unpaid",
       index: true,
     },
@@ -141,7 +274,9 @@ const shipmentSchema = new mongoose.Schema(
       default: null,
     },
 
-    /* ================= INVOICE DISPLAY ================= */
+    /* ======================================================
+       PUBLIC INVOICE
+    ====================================================== */
     invoicePublic: {
       type: Boolean,
       default: true,
@@ -153,14 +288,18 @@ const shipmentSchema = new mongoose.Schema(
       trim: true,
     },
 
-    /* ================= ADMIN NOTE ================= */
+    /* ======================================================
+       ADMIN NOTE
+    ====================================================== */
     adminNote: {
       type: String,
       default: "",
       trim: true,
     },
 
-    /* ================= STATUS ================= */
+    /* ======================================================
+       SHIPMENT STATUS
+    ====================================================== */
     status: {
       type: String,
       enum: [
@@ -176,27 +315,63 @@ const shipmentSchema = new mongoose.Schema(
       index: true,
     },
 
-    isDelivered: { type: Boolean, default: false },
-    deliveredAt: { type: Date, default: null },
+    /* ======================================================
+       PROGRESS
+       0 = Booked
+       100 = Delivered
+    ====================================================== */
+    progress: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100,
+    },
+
+    /* ======================================================
+       DELIVERY LOCK
+    ====================================================== */
+    isDelivered: {
+      type: Boolean,
+      default: false,
+    },
+
+    deliveredAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
-    toJSON: { virtuals: true },
-    toObject: { virtuals: true },
+
+    toJSON: {
+      virtuals: true,
+    },
+
+    toObject: {
+      virtuals: true,
+    },
+
     versionKey: false,
   }
 );
 
-/* ================= VIRTUALS ================= */
+/* ======================================================
+   PUBLIC INVOICE URL
+====================================================== */
 
-// Public invoice URL
 shipmentSchema.virtual("invoiceUrl").get(function () {
   return `/invoice/${this.trackingNumber}`;
 });
 
-// Paid check
+/* ======================================================
+   INVOICE PAID CHECK
+====================================================== */
+
 shipmentSchema.virtual("isInvoicePaid").get(function () {
   return this.invoiceStatus === "Paid";
 });
 
-export default mongoose.model("Shipment", shipmentSchema);
+export default mongoose.model(
+  "Shipment",
+  shipmentSchema
+);

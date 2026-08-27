@@ -2,7 +2,9 @@ import mongoose from "mongoose";
 
 const trackingSchema = new mongoose.Schema(
   {
-    /* ================= LINKED SHIPMENT ================= */
+    /* ======================================================
+       LINKED SHIPMENT
+    ====================================================== */
     shipment: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Shipment",
@@ -17,7 +19,9 @@ const trackingSchema = new mongoose.Schema(
       trim: true,
     },
 
-    /* ================= STATUS EVENT ================= */
+    /* ======================================================
+       STATUS EVENT
+    ====================================================== */
     status: {
       type: String,
       enum: [
@@ -32,79 +36,211 @@ const trackingSchema = new mongoose.Schema(
       required: true,
     },
 
-    /* ================= LOCATION ================= */
-    city: { type: String, required: true, trim: true },
-    country: { type: String, required: true, trim: true },
+    /* ======================================================
+       PROGRESS
+    ====================================================== */
+    progress: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100,
+    },
 
-    lat: { type: Number, default: null },
-    lng: { type: Number, default: null },
+    /* ======================================================
+       LOCATION
+    ====================================================== */
+    city: {
+      type: String,
+      required: true,
+      trim: true,
+    },
 
-    /* ================= MESSAGE ================= */
+    country: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    lat: {
+      type: Number,
+      default: null,
+    },
+
+    lng: {
+      type: Number,
+      default: null,
+    },
+
+    /* ======================================================
+       MESSAGE
+    ====================================================== */
     message: {
       type: String,
       default: "",
       trim: true,
     },
 
-    /* ================= SNAPSHOT: SENDER ================= */
+    /* ======================================================
+       SENDER SNAPSHOT
+    ====================================================== */
     sender: {
-      name: String,
-      email: String,
-      phone: String,
-      address: String,
+      name: {
+        type: String,
+        default: "",
+      },
+
+      email: {
+        type: String,
+        default: "",
+      },
+
+      phone: {
+        type: String,
+        default: "",
+      },
+
+      address: {
+        type: String,
+        default: "",
+      },
     },
 
-    /* ================= SNAPSHOT: RECEIVER ================= */
+    /* ======================================================
+       RECEIVER SNAPSHOT
+    ====================================================== */
     receiver: {
-      name: String,
-      email: String,
-      phone: String,
-      address: String,
+      name: {
+        type: String,
+        default: "",
+      },
+
+      email: {
+        type: String,
+        default: "",
+      },
+
+      phone: {
+        type: String,
+        default: "",
+      },
+
+      address: {
+        type: String,
+        default: "",
+      },
     },
 
-    /* ================= SNAPSHOT: SHIPMENT INFO ================= */
+    /* ======================================================
+       SHIPMENT SNAPSHOT
+    ====================================================== */
     shipmentInfo: {
-      origin: String,
-      destination: String,
-      weight: Number,
-      quantity: Number,
-      price: Number,
-      deliveryRange: String,
-      estimatedDelivery: Date,
+      origin: {
+        type: String,
+        default: "",
+      },
+
+      destination: {
+        type: String,
+        default: "",
+      },
+
+      weight: {
+        type: Number,
+        default: 0,
+      },
+
+      quantity: {
+        type: Number,
+        default: 1,
+      },
+
+      price: {
+        type: Number,
+        default: 0,
+      },
+
+      deliveryRange: {
+        type: String,
+        default: "",
+      },
+
+      estimatedDelivery: {
+        type: Date,
+        default: null,
+      },
     },
   },
   {
     timestamps: true,
+    versionKey: false,
   }
 );
 
-/* ================= SAFETY ================= */
+/* ======================================================
+   PREVENT DUPLICATE SYSTEM EVENTS
+====================================================== */
+
 trackingSchema.index(
-  { shipment: 1, status: 1 },
+  {
+    shipment: 1,
+    status: 1,
+  },
   {
     unique: true,
+
     partialFilterExpression: {
-      status: { $in: ["Booked", "Picked Up", "Delivered"] },
+      status: {
+        $in: [
+          "Booked",
+          "Picked Up",
+          "Delivered",
+        ],
+      },
     },
   }
 );
 
 /* ======================================================
-   🔒 FINAL DELIVERY LOCK (ADDITIVE, NO REMOVALS)
+   DELIVERY LOCK
 ====================================================== */
-trackingSchema.pre("save", async function (next) {
-  if (this.status === "Delivered") return next();
 
-  const Shipment = mongoose.model("Shipment");
-  const shipment = await Shipment.findById(this.shipment);
+trackingSchema.pre(
+  "save",
+  async function (next) {
+    try {
+      /*
+       * Delivered event itself is allowed.
+       */
+      if (this.status === "Delivered") {
+        return next();
+      }
 
-  if (shipment?.isDelivered === true) {
-    return next(
-      new Error("Tracking is locked. Shipment already delivered.")
-    );
+      const Shipment =
+        mongoose.model("Shipment");
+
+      const shipment =
+        await Shipment.findById(
+          this.shipment
+        );
+
+      if (
+        shipment?.isDelivered === true
+      ) {
+        return next(
+          new Error(
+            "Tracking is locked. Shipment already delivered."
+          )
+        );
+      }
+
+      next();
+    } catch (error) {
+      next(error);
+    }
   }
+);
 
-  next();
-});
-
-export default mongoose.model("Tracking", trackingSchema);
+export default mongoose.model(
+  "Tracking",
+  trackingSchema
+);
