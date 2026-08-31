@@ -29,10 +29,16 @@ const geocodeLocation = async (city, country) => {
       headers: {
         "User-Agent":
           "Epex Logistics/1.0 (admin@epexlogistics.com)",
+        Accept: "application/json",
       },
     });
 
     if (!response.ok) {
+      console.error(
+        "Geocoding request failed:",
+        response.status
+      );
+
       return {
         lat: null,
         lng: null,
@@ -45,10 +51,18 @@ const geocodeLocation = async (city, country) => {
       Array.isArray(data) &&
       data.length > 0
     ) {
-      return {
-        lat: Number(data[0].lat),
-        lng: Number(data[0].lon),
-      };
+      const lat = Number(data[0].lat);
+      const lng = Number(data[0].lon);
+
+      if (
+        Number.isFinite(lat) &&
+        Number.isFinite(lng)
+      ) {
+        return {
+          lat,
+          lng,
+        };
+      }
     }
 
     return {
@@ -69,12 +83,73 @@ const geocodeLocation = async (city, country) => {
 };
 
 /* ======================================================
+   📍 SAFE COORDINATE VALIDATION
+====================================================== */
+
+const normalizeCoordinates = (
+  lat,
+  lng
+) => {
+  if (
+    lat === undefined ||
+    lat === null ||
+    lng === undefined ||
+    lng === null ||
+    lat === "" ||
+    lng === ""
+  ) {
+    return {
+      lat: null,
+      lng: null,
+    };
+  }
+
+  const normalizedLat = Number(lat);
+  const normalizedLng = Number(lng);
+
+  if (
+    !Number.isFinite(normalizedLat) ||
+    !Number.isFinite(normalizedLng)
+  ) {
+    return {
+      lat: null,
+      lng: null,
+    };
+  }
+
+  if (
+    normalizedLat < -90 ||
+    normalizedLat > 90
+  ) {
+    return {
+      lat: null,
+      lng: null,
+    };
+  }
+
+  if (
+    normalizedLng < -180 ||
+    normalizedLng > 180
+  ) {
+    return {
+      lat: null,
+      lng: null,
+    };
+  }
+
+  return {
+    lat: normalizedLat,
+    lng: normalizedLng,
+  };
+};
+
+/* ======================================================
    🔢 INVOICE NUMBER
 ====================================================== */
 
 const generateInvoiceNumber = () => {
   return `INV-${Date.now()}-${Math.floor(
-    Math.random() * 1000
+    100 + Math.random() * 900
   )}`;
 };
 
@@ -82,7 +157,9 @@ const generateInvoiceNumber = () => {
    💰 VAT
 ====================================================== */
 
-const getVatPercentByCountry = (country) => {
+const getVatPercentByCountry = (
+  country
+) => {
   if (!country) return 0;
 
   const c = country
@@ -102,12 +179,234 @@ const getVatPercentByCountry = (country) => {
 
   if (
     c === "united states" ||
-    c === "usa"
+    c === "usa" ||
+    c === "us"
   ) {
     return 0;
   }
 
   return 0;
+};
+
+/* ======================================================
+   📅 DELIVERY DATE
+====================================================== */
+
+const calculateEstimatedDelivery = (
+  deliveryRange
+) => {
+  if (!deliveryRange) {
+    return null;
+  }
+
+  const normalizedRange =
+    String(deliveryRange)
+      .toLowerCase()
+      .replace(/[–—]/g, "-")
+      .replace(/\s+/g, "")
+      .trim();
+
+  const today = new Date();
+
+  /*
+   * Approximate middle of delivery window.
+   *
+   * 1-3 days  → 2 days
+   * 6-10 days → 8 days
+   */
+
+  let daysToAdd = null;
+
+  if (
+    normalizedRange.startsWith("1-3")
+  ) {
+    daysToAdd = 2;
+  } else if (
+    normalizedRange.startsWith("6-10")
+  ) {
+    daysToAdd = 8;
+  }
+
+  if (daysToAdd === null) {
+    return null;
+  }
+
+  const estimatedDelivery =
+    new Date(today);
+
+  estimatedDelivery.setDate(
+    estimatedDelivery.getDate() +
+      daysToAdd
+  );
+
+  return estimatedDelivery;
+};
+
+/* ======================================================
+   📊 VALIDATE PROGRESS
+====================================================== */
+
+const normalizeProgress = (
+  progress,
+  status,
+  fallback = 0
+) => {
+  let value =
+    progress !== undefined &&
+    progress !== null &&
+    progress !== ""
+      ? Number(progress)
+      : Number(fallback);
+
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+
+  value = Math.round(value);
+
+  if (value < 0 || value > 100) {
+    return null;
+  }
+
+  if (status === "Delivered") {
+    return 100;
+  }
+
+  return value;
+};
+
+/* ======================================================
+   🚚 ALLOWED STATUSES
+====================================================== */
+
+const ALLOWED_STATUSES = [
+  "Booked",
+  "Picked Up",
+  "In Transit",
+  "Customs Clearance",
+  "On Hold",
+  "Out for Delivery",
+  "Delivered",
+];
+
+/* ======================================================
+   🛃 CUSTOMS STAGES
+====================================================== */
+
+const CUSTOMS_STAGES = [
+  "Prepared for Customs",
+  "Checked by Customs",
+  "Released by Customs",
+  "Shipment Given to Our Agent",
+];
+
+/* ======================================================
+   🛃 CUSTOMS STAGE INDEX
+====================================================== */
+
+const getCustomsStageIndex = (
+  customsStage
+) => {
+  if (!customsStage) {
+    return null;
+  }
+
+  const index =
+    CUSTOMS_STAGES.indexOf(
+      customsStage
+    );
+
+  return index === -1
+    ? null
+    : index;
+};
+
+/* ======================================================
+   📦 SHIPMENT SNAPSHOT
+====================================================== */
+
+const buildShipmentSnapshot = (
+  shipment
+) => {
+  return {
+    origin: shipment.origin,
+
+    destination:
+      shipment.destination,
+
+    weight: shipment.weight,
+
+    quantity: shipment.quantity,
+
+    price: shipment.price,
+
+    deliveryRange:
+      shipment.deliveryRange,
+
+    estimatedDelivery:
+      shipment.estimatedDelivery,
+  };
+};
+
+/* ======================================================
+   👤 SENDER SNAPSHOT
+====================================================== */
+
+const buildSenderSnapshot = (
+  shipment
+) => {
+  return {
+    name:
+      shipment.sender?.name || "",
+
+    email:
+      shipment.sender?.email || "",
+
+    phone:
+      shipment.sender?.phone || "",
+
+    address:
+      shipment.sender?.address || "",
+  };
+};
+
+/* ======================================================
+   👤 RECEIVER SNAPSHOT
+====================================================== */
+
+const buildReceiverSnapshot = (
+  shipment
+) => {
+  return {
+    name:
+      shipment.receiver?.name || "",
+
+    email:
+      shipment.receiver?.email || "",
+
+    phone:
+      shipment.receiver?.phone || "",
+
+    address:
+      shipment.receiver?.address || "",
+  };
+};
+
+/* ======================================================
+   📧 ESCAPE HTML
+====================================================== */
+
+const escapeHtml = (value) => {
+  if (value === undefined || value === null) {
+    return "";
+  }
+
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 };
 
 /* ======================================================
@@ -145,6 +444,55 @@ export const getShipments = async (
 };
 
 /* ======================================================
+   📦 GET SINGLE SHIPMENT
+====================================================== */
+
+export const getShipment = async (
+  req,
+  res
+) => {
+  try {
+    const { id } = req.params;
+
+    if (
+      !mongoose.Types.ObjectId.isValid(id)
+    ) {
+      return res.status(400).json({
+        message:
+          "Invalid shipment ID",
+      });
+    }
+
+    const shipment =
+      await Shipment.findById(id)
+        .populate(
+          "customer",
+          "name email"
+        )
+        .populate("quote");
+
+    if (!shipment) {
+      return res.status(404).json({
+        message:
+          "Shipment not found",
+      });
+    }
+
+    res.json(shipment);
+  } catch (error) {
+    console.error(
+      "Get shipment error:",
+      error
+    );
+
+    res.status(500).json({
+      message:
+        "Failed to fetch shipment",
+    });
+  }
+};
+
+/* ======================================================
    📦 CREATE SHIPMENT
 ====================================================== */
 
@@ -170,7 +518,9 @@ export const createShipment = async (
       paymentMethod,
     } = req.body;
 
-    /* ================= VALIDATION ================= */
+    /* ==================================================
+       VALIDATION
+    ================================================== */
 
     if (
       !sender?.name ||
@@ -181,8 +531,10 @@ export const createShipment = async (
       !receiver?.address ||
       !origin ||
       !destination ||
-      !weight ||
-      !deliveryRange ||
+      weight === undefined ||
+      weight === null ||
+      deliveryRange === undefined ||
+      deliveryRange === null ||
       price === undefined ||
       price === null ||
       !city ||
@@ -193,6 +545,10 @@ export const createShipment = async (
           "Missing required shipment details",
       });
     }
+
+    /* ==================================================
+       CUSTOMER ID
+    ================================================== */
 
     if (
       customer &&
@@ -206,6 +562,10 @@ export const createShipment = async (
       });
     }
 
+    /* ==================================================
+       QUOTE ID
+    ================================================== */
+
     if (
       quote &&
       !mongoose.Types.ObjectId.isValid(
@@ -218,15 +578,19 @@ export const createShipment = async (
       });
     }
 
-    /* ================= NUMBERS ================= */
+    /* ==================================================
+       NUMBERS
+    ================================================== */
 
     const numericWeight =
       Number(weight);
 
     const numericQuantity =
-      quantity
-        ? Number(quantity)
-        : 1;
+      quantity === undefined ||
+      quantity === null ||
+      quantity === ""
+        ? 1
+        : Number(quantity);
 
     const subtotal =
       Number(price);
@@ -265,44 +629,25 @@ export const createShipment = async (
       });
     }
 
-    /* ================= DELIVERY DATE ================= */
-
-    const today =
-      new Date();
+    /* ==================================================
+       DELIVERY DATE
+    ================================================== */
 
     const estimatedDelivery =
-      new Date(today);
-
-    const normalizedRange =
-      deliveryRange
-        .toLowerCase()
-        .replace(/[–—]/g, "-")
-        .trim();
-
-    if (
-      normalizedRange.startsWith(
-        "6-10"
-      )
-    ) {
-      estimatedDelivery.setDate(
-        today.getDate() + 8
+      calculateEstimatedDelivery(
+        deliveryRange
       );
-    } else if (
-      normalizedRange.startsWith(
-        "1-3"
-      )
-    ) {
-      estimatedDelivery.setDate(
-        today.getDate() + 2
-      );
-    } else {
+
+    if (!estimatedDelivery) {
       return res.status(400).json({
         message:
           "Invalid delivery range. Use 1–3 or 6–10 business days",
       });
     }
 
-    /* ================= VAT ================= */
+    /* ==================================================
+       VAT
+    ================================================== */
 
     const vatPercent =
       getVatPercentByCountry(
@@ -320,7 +665,9 @@ export const createShipment = async (
       tax -
       discount;
 
-    /* ================= IDENTIFIERS ================= */
+    /* ==================================================
+       IDENTIFIERS
+    ================================================== */
 
     const trackingNumber =
       generateTracking();
@@ -328,7 +675,61 @@ export const createShipment = async (
     const invoiceNumber =
       generateInvoiceNumber();
 
-    /* ================= CREATE ================= */
+    /* ==================================================
+       GEOCODE ORIGIN
+    ================================================== */
+
+    const originCoordinates =
+      await geocodeLocation(
+        origin,
+        ""
+      );
+
+    /*
+     * If origin contains something like:
+     * "Damascus, Syria"
+     *
+     * the helper above may not be enough because
+     * origin is a free-form route string.
+     *
+     * We therefore try it directly first and
+     * fall back to the shipment city/country.
+     */
+
+    let finalOriginCoordinates =
+      originCoordinates;
+
+    if (
+      finalOriginCoordinates.lat ===
+        null ||
+      finalOriginCoordinates.lng ===
+        null
+    ) {
+      finalOriginCoordinates =
+        await geocodeLocation(
+          city,
+          country
+        );
+    }
+
+    /* ==================================================
+       GEOCODE DESTINATION
+    ================================================== */
+
+    const destinationCoordinates =
+      await geocodeLocation(
+        destination,
+        ""
+      );
+
+    /*
+     * Destination may also be a full free-form
+     * address. If geocoding fails, we leave it null.
+     */
+
+    /* ==================================================
+       CREATE SHIPMENT
+    ================================================== */
 
     const shipment =
       await Shipment.create({
@@ -358,18 +759,33 @@ export const createShipment = async (
             receiver.address,
         },
 
-        origin,
-        destination,
+        origin:
+          String(origin).trim(),
 
-        city,
-        country,
+        destination:
+          String(destination).trim(),
+
+        city:
+          String(city).trim(),
+
+        country:
+          String(country).trim(),
 
         currentLocation: {
-          city,
-          country,
-          lat: null,
-          lng: null,
-          updatedAt: null,
+          city:
+            String(city).trim(),
+
+          country:
+            String(country).trim(),
+
+          lat:
+            finalOriginCoordinates.lat,
+
+          lng:
+            finalOriginCoordinates.lng,
+
+          updatedAt:
+            new Date(),
         },
 
         weight:
@@ -378,18 +794,25 @@ export const createShipment = async (
         quantity:
           numericQuantity,
 
-        deliveryRange,
+        deliveryRange:
+          String(deliveryRange).trim(),
 
         estimatedDelivery,
 
-        price: subtotal,
+        price:
+          subtotal,
 
         invoice: {
           subtotal,
+
           vatPercent,
+
           tax,
+
           discount,
+
           total,
+
           currency: "$",
         },
 
@@ -420,7 +843,8 @@ export const createShipment = async (
         status:
           "Booked",
 
-        progress: 0,
+        progress:
+          0,
 
         isDelivered:
           false,
@@ -429,108 +853,81 @@ export const createShipment = async (
           null,
       });
 
-    /* ================= GEOCODING ================= */
+    /* ==================================================
+       INITIAL TRACKING EVENT
+    ================================================== */
 
-    const {
-      lat,
-      lng,
-    } =
-      await geocodeLocation(
-        city,
-        country
-      );
+    const initialTracking =
+      await Tracking.create({
+        shipment:
+          shipment._id,
 
-    /* ================= UPDATE LOCATION ================= */
+        trackingNumber,
 
-    shipment.currentLocation = {
-      city,
-      country,
-      lat,
-      lng,
-      updatedAt:
-        new Date(),
-    };
+        status:
+          "Booked",
 
-    await shipment.save();
+        progress:
+          0,
 
-    /* ================= INITIAL TRACKING ================= */
+        city:
+          shipment.city,
 
-    await Tracking.create({
-      shipment:
-        shipment._id,
+        country:
+          shipment.country,
 
-      trackingNumber,
+        lat:
+          finalOriginCoordinates.lat,
 
-      status:
-        "Booked",
+        lng:
+          finalOriginCoordinates.lng,
 
-      progress: 0,
+        originLat:
+          finalOriginCoordinates.lat,
 
-      city,
-      country,
+        originLng:
+          finalOriginCoordinates.lng,
 
-      lat,
-      lng,
+        destinationLat:
+          destinationCoordinates.lat,
 
-      message:
-        "Shipment booked. Thank you for choosing Epex Logistics",
+        destinationLng:
+          destinationCoordinates.lng,
 
-      sender: {
-        name:
-          shipment.sender.name,
-
-        email:
-          shipment.sender.email,
-
-        phone:
-          shipment.sender.phone,
-
-        address:
-          shipment.sender.address,
-      },
-
-      receiver: {
-        name:
-          shipment.receiver.name,
-
-        email:
-          shipment.receiver.email,
-
-        phone:
-          shipment.receiver.phone,
-
-        address:
-          shipment.receiver.address,
-      },
-
-      shipmentInfo: {
-        origin:
-          shipment.origin,
-
-        destination:
+        destinationCity:
           shipment.destination,
 
-        weight:
-          shipment.weight,
+        destinationCountry:
+          "",
 
-        quantity:
-          shipment.quantity,
-
-        price:
-          shipment.price,
-
-        deliveryRange:
-          shipment.deliveryRange,
-
-        estimatedDelivery:
+        estimatedArrival:
           shipment.estimatedDelivery,
-      },
-    });
 
-    /* ================= EMAIL SENDER ================= */
+        message:
+          "Shipment booked. Thank you for choosing Epex Logistics",
+
+        sender:
+          buildSenderSnapshot(
+            shipment
+          ),
+
+        receiver:
+          buildReceiverSnapshot(
+            shipment
+          ),
+
+        shipmentInfo:
+          buildShipmentSnapshot(
+            shipment
+          ),
+      });
+
+    /* ==================================================
+       EMAIL SENDER
+    ================================================== */
 
     if (
-      shipment.sender.email
+      shipment.sender?.email
     ) {
       try {
         await sendEmail({
@@ -541,26 +938,36 @@ export const createShipment = async (
             `Shipment Booked – ${trackingNumber}`,
 
           html: `
-            <div style="font-family:Arial;line-height:1.6">
+            <div style="font-family:Arial,sans-serif;line-height:1.6;color:#222">
 
               <h2>📦 Shipment Successfully Booked</h2>
 
               <p>
-                Hello ${shipment.sender.name},
+                Hello ${escapeHtml(
+                  shipment.sender.name
+                )},
               </p>
 
               <p>
-                Your shipment has been created successfully.
+                Your shipment has been created successfully with Epex Logistics.
               </p>
 
               <p>
                 <strong>Tracking Number:</strong>
-                ${trackingNumber}
+                ${escapeHtml(
+                  trackingNumber
+                )}
               </p>
 
               <p>
                 <strong>Route:</strong>
-                ${origin} → ${destination}
+                ${escapeHtml(
+                  origin
+                )}
+                →
+                ${escapeHtml(
+                  destination
+                )}
               </p>
 
               <p>
@@ -593,19 +1000,33 @@ export const createShipment = async (
       }
     }
 
-    /* ================= RESPONSE ================= */
+    /* ==================================================
+       RESPONSE
+    ================================================== */
 
     res.status(201).json({
       message:
         "Shipment created successfully",
 
       shipment,
+
+      tracking:
+        initialTracking,
     });
   } catch (error) {
     console.error(
       "Create shipment error:",
       error
     );
+
+    if (
+      error.code === 11000
+    ) {
+      return res.status(400).json({
+        message:
+          "Tracking number or invoice number already exists. Please try again.",
+      });
+    }
 
     res.status(500).json({
       message:
@@ -626,6 +1047,13 @@ export const getPublicShipmentInvoice =
         trackingNumber,
       } = req.params;
 
+      if (!trackingNumber) {
+        return res.status(400).json({
+          message:
+            "Tracking number is required",
+        });
+      }
+
       const shipment =
         await Shipment.findOne({
           trackingNumber,
@@ -633,8 +1061,7 @@ export const getPublicShipmentInvoice =
 
       if (
         !shipment ||
-        shipment.invoicePublic !==
-          true
+        shipment.invoicePublic !== true
       ) {
         return res.status(404).json({
           message:
@@ -748,10 +1175,19 @@ export const getPublicShipmentInvoice =
 export const getShipmentInvoice =
   async (req, res) => {
     try {
+      const { id } = req.params;
+
+      if (
+        !mongoose.Types.ObjectId.isValid(id)
+      ) {
+        return res.status(400).json({
+          message:
+            "Invalid shipment ID",
+        });
+      }
+
       const shipment =
-        await Shipment.findById(
-          req.params.id
-        );
+        await Shipment.findById(id);
 
       if (!shipment) {
         return res.status(404).json({
@@ -797,6 +1233,7 @@ export const getShipmentInvoice =
    🚚 UPDATE SHIPMENT STATUS
    + PROGRESS
    + LOCATION
+   + CUSTOMS STAGE
 ====================================================== */
 
 export const updateShipmentStatus =
@@ -810,9 +1247,13 @@ export const updateShipmentStatus =
         lat,
         lng,
         progress,
+        customsStage,
+        estimatedArrival,
       } = req.body;
 
-      /* ================= VALIDATION ================= */
+      /* ==================================================
+         VALIDATION
+      ================================================== */
 
       if (
         !status ||
@@ -825,16 +1266,8 @@ export const updateShipmentStatus =
         });
       }
 
-      const allowedStatuses = [
-        "In Transit",
-        "Customs Clearance",
-        "On Hold",
-        "Out for Delivery",
-        "Delivered",
-      ];
-
       if (
-        !allowedStatuses.includes(
+        !ALLOWED_STATUSES.includes(
           status
         )
       ) {
@@ -844,12 +1277,60 @@ export const updateShipmentStatus =
         });
       }
 
-      /* ================= FIND ================= */
+      /* ==================================================
+         CUSTOMS VALIDATION
+      ================================================== */
+
+      if (
+        status ===
+          "Customs Clearance"
+      ) {
+        if (
+          customsStage &&
+          !CUSTOMS_STAGES.includes(
+            customsStage
+          )
+        ) {
+          return res.status(400).json({
+            message:
+              "Invalid customs stage",
+          });
+        }
+      }
+
+      /*
+       * Customs stage must NOT be attached
+       * to another shipment status.
+       */
+
+      if (
+        status !==
+          "Customs Clearance" &&
+        customsStage
+      ) {
+        return res.status(400).json({
+          message:
+            "Customs stage can only be used with Customs Clearance status",
+        });
+      }
+
+      /* ==================================================
+         FIND SHIPMENT
+      ================================================== */
+
+      const { id } = req.params;
+
+      if (
+        !mongoose.Types.ObjectId.isValid(id)
+      ) {
+        return res.status(400).json({
+          message:
+            "Invalid shipment ID",
+        });
+      }
 
       const shipment =
-        await Shipment.findById(
-          req.params.id
-        );
+        await Shipment.findById(id);
 
       if (!shipment) {
         return res.status(404).json({
@@ -858,7 +1339,9 @@ export const updateShipmentStatus =
         });
       }
 
-      /* ================= LOCK ================= */
+      /* ==================================================
+         DELIVERY LOCK
+      ================================================== */
 
       if (
         shipment.isDelivered
@@ -869,49 +1352,24 @@ export const updateShipmentStatus =
         });
       }
 
-      /* ================= PROGRESS ================= */
+      /* ==================================================
+         PROGRESS
+      ================================================== */
 
-      let shipmentProgress =
-        progress !== undefined &&
-        progress !== null &&
-        progress !== ""
-          ? Number(progress)
-          : shipment.progress ??
-            0;
-
-      if (
-        !Number.isFinite(
-          shipmentProgress
-        )
-      ) {
-        return res.status(400).json({
-          message:
-            "Progress must be a valid number",
-        });
-      }
-
-      shipmentProgress =
-        Math.round(
-          shipmentProgress
+      const shipmentProgress =
+        normalizeProgress(
+          progress,
+          status,
+          shipment.progress ?? 0
         );
 
       if (
-        shipmentProgress < 0 ||
-        shipmentProgress > 100
+        shipmentProgress === null
       ) {
         return res.status(400).json({
           message:
-            "Progress must be between 0 and 100",
+            "Progress must be a valid number between 0 and 100",
         });
-      }
-
-      /* ================= DELIVERY ================= */
-
-      if (
-        status === "Delivered"
-      ) {
-        shipmentProgress =
-          100;
       }
 
       if (
@@ -925,35 +1383,25 @@ export const updateShipmentStatus =
         });
       }
 
-      /* ================= LOCATION ================= */
+      /* ==================================================
+         LOCATION
+      ================================================== */
 
-      let coordinates;
+      let coordinates =
+        normalizeCoordinates(
+          lat,
+          lng
+        );
+
+      /*
+       * If admin didn't provide coordinates,
+       * geocode the supplied city/country.
+       */
 
       if (
-        lat !== undefined &&
-        lng !== undefined &&
-        lat !== "" &&
-        lng !== ""
+        coordinates.lat === null ||
+        coordinates.lng === null
       ) {
-        coordinates = {
-          lat: Number(lat),
-          lng: Number(lng),
-        };
-
-        if (
-          !Number.isFinite(
-            coordinates.lat
-          ) ||
-          !Number.isFinite(
-            coordinates.lng
-          )
-        ) {
-          return res.status(400).json({
-            message:
-              "Latitude and longitude must be valid numbers",
-          });
-        }
-      } else {
         coordinates =
           await geocodeLocation(
             city,
@@ -961,7 +1409,104 @@ export const updateShipmentStatus =
           );
       }
 
-      /* ================= TRACKING EVENT ================= */
+      /* ==================================================
+         EXISTING ROUTE COORDINATES
+      ================================================== */
+
+      const firstTracking =
+        await Tracking.findOne({
+          shipment:
+            shipment._id,
+        }).sort({
+          createdAt: 1,
+        });
+
+      let originLat =
+        firstTracking?.originLat ??
+        null;
+
+      let originLng =
+        firstTracking?.originLng ??
+        null;
+
+      let destinationLat =
+        firstTracking?.destinationLat ??
+        null;
+
+      let destinationLng =
+        firstTracking?.destinationLng ??
+        null;
+
+      /* ==================================================
+         IF ORIGIN COORDINATES DON'T EXIST
+         TRY TO GEOCODE SHIPMENT CITY/COUNTRY
+      ================================================== */
+
+      if (
+        originLat === null ||
+        originLng === null
+      ) {
+        const origin =
+          await geocodeLocation(
+            shipment.city,
+            shipment.country
+          );
+
+        originLat = origin.lat;
+        originLng = origin.lng;
+      }
+
+      /* ==================================================
+         DESTINATION COORDINATES
+      ================================================== */
+
+      if (
+        destinationLat === null ||
+        destinationLng === null
+      ) {
+        const destination =
+          await geocodeLocation(
+            shipment.destination,
+            ""
+          );
+
+        destinationLat =
+          destination.lat;
+
+        destinationLng =
+          destination.lng;
+      }
+
+      /* ==================================================
+         DELIVERED = DESTINATION
+      ================================================== */
+
+      if (
+        status === "Delivered" &&
+        destinationLat !== null &&
+        destinationLng !== null
+      ) {
+        coordinates = {
+          lat: destinationLat,
+          lng: destinationLng,
+        };
+      }
+
+      /* ==================================================
+         CUSTOMS STAGE INDEX
+      ================================================== */
+
+      const customsStageIndex =
+        status ===
+          "Customs Clearance"
+          ? getCustomsStageIndex(
+              customsStage
+            )
+          : null;
+
+      /* ==================================================
+         TRACKING EVENT
+      ================================================== */
 
       const tracking =
         await Tracking.create({
@@ -976,9 +1521,19 @@ export const updateShipmentStatus =
           progress:
             shipmentProgress,
 
-          city,
+          customsStage:
+            status ===
+            "Customs Clearance"
+              ? customsStage || null
+              : null,
 
-          country,
+          customsStageIndex,
+
+          city:
+            String(city).trim(),
+
+          country:
+            String(country).trim(),
 
           lat:
             coordinates.lat,
@@ -986,71 +1541,47 @@ export const updateShipmentStatus =
           lng:
             coordinates.lng,
 
+          originLat,
+
+          originLng,
+
+          destinationLat,
+
+          destinationLng,
+
+          destinationCity:
+            shipment.destination,
+
+          destinationCountry:
+            "",
+
+          estimatedArrival:
+            estimatedArrival ||
+            shipment.estimatedDelivery,
+
           message:
             message ||
             `${status} — ${city}, ${country}`,
 
-          sender: {
-            name:
-              shipment.sender
-                ?.name || "",
+          sender:
+            buildSenderSnapshot(
+              shipment
+            ),
 
-            email:
-              shipment.sender
-                ?.email || "",
+          receiver:
+            buildReceiverSnapshot(
+              shipment
+            ),
 
-            phone:
-              shipment.sender
-                ?.phone || "",
-
-            address:
-              shipment.sender
-                ?.address || "",
-          },
-
-          receiver: {
-            name:
-              shipment.receiver
-                ?.name || "",
-
-            email:
-              shipment.receiver
-                ?.email || "",
-
-            phone:
-              shipment.receiver
-                ?.phone || "",
-
-            address:
-              shipment.receiver
-                ?.address || "",
-          },
-
-          shipmentInfo: {
-            origin:
-              shipment.origin,
-
-            destination:
-              shipment.destination,
-
-            weight:
-              shipment.weight,
-
-            quantity:
-              shipment.quantity,
-
-            price:
-              shipment.price,
-
-            deliveryRange:
-              shipment.deliveryRange,
-
-            estimatedDelivery:
-              shipment.estimatedDelivery,
-          },
+          shipmentInfo:
+            buildShipmentSnapshot(
+              shipment
+            ),
         });
 
-      /* ================= UPDATE SHIPMENT ================= */
+      /* ==================================================
+         UPDATE SHIPMENT
+      ================================================== */
 
       shipment.status =
         status;
@@ -1059,28 +1590,38 @@ export const updateShipmentStatus =
         shipmentProgress;
 
       shipment.city =
-        city;
+        String(city).trim();
 
       shipment.country =
-        country;
+        String(country).trim();
 
-      shipment.currentLocation =
-        {
-          city,
-          country,
-          lat:
-            coordinates.lat,
-          lng:
-            coordinates.lng,
-          updatedAt:
-            new Date(),
-        };
+      shipment.currentLocation = {
+        city:
+          String(city).trim(),
 
-      /* ================= DELIVERED ================= */
+        country:
+          String(country).trim(),
+
+        lat:
+          coordinates.lat,
+
+        lng:
+          coordinates.lng,
+
+        updatedAt:
+          new Date(),
+      };
+
+      /* ==================================================
+         DELIVERED
+      ================================================== */
 
       if (
         status === "Delivered"
       ) {
+        shipment.progress =
+          100;
+
         shipment.isDelivered =
           true;
 
@@ -1090,7 +1631,9 @@ export const updateShipmentStatus =
 
       await shipment.save();
 
-      /* ================= EMAIL ================= */
+      /* ==================================================
+         EMAIL NOTIFICATION
+      ================================================== */
 
       try {
         const recipients = [
@@ -1104,6 +1647,22 @@ export const updateShipmentStatus =
         if (
           recipients.length > 0
         ) {
+          const customsText =
+            status ===
+              "Customs Clearance" &&
+            customsStage
+              ? `
+                <p>
+                  <strong>
+                    Customs Stage:
+                  </strong>
+                  ${escapeHtml(
+                    customsStage
+                  )}
+                </p>
+              `
+              : "";
+
           await sendEmail({
             to: recipients,
 
@@ -1111,7 +1670,7 @@ export const updateShipmentStatus =
               `Shipment Update – ${shipment.trackingNumber}`,
 
             html: `
-              <div style="font-family:Arial;line-height:1.6">
+              <div style="font-family:Arial,sans-serif;line-height:1.6;color:#222">
 
                 <h2>
                   📦 Shipment Status Updated
@@ -1121,32 +1680,48 @@ export const updateShipmentStatus =
                   <strong>
                     Tracking Number:
                   </strong>
-                  ${shipment.trackingNumber}
+                  ${escapeHtml(
+                    shipment.trackingNumber
+                  )}
                 </p>
 
                 <p>
                   <strong>
                     Status:
                   </strong>
-                  ${status}
+                  ${escapeHtml(
+                    status
+                  )}
                 </p>
+
+                ${
+                  customsText
+                }
 
                 <p>
                   <strong>
                     Shipment Progress:
                   </strong>
-                  ${shipmentProgress}%
+                  ${shipment.progress}%
                 </p>
 
                 <p>
                   <strong>
                     Current Location:
                   </strong>
-                  ${city}, ${country}
+                  ${escapeHtml(
+                    city
+                  )},
+                  ${escapeHtml(
+                    country
+                  )}
                 </p>
 
                 <p>
-                  ${message || status}
+                  ${escapeHtml(
+                    message ||
+                      status
+                  )}
                 </p>
 
                 <hr />
@@ -1176,7 +1751,9 @@ export const updateShipmentStatus =
         );
       }
 
-      /* ================= RESPONSE ================= */
+      /* ==================================================
+         RESPONSE
+      ================================================== */
 
       res.json({
         message:
@@ -1188,6 +1765,12 @@ export const updateShipmentStatus =
 
         progress:
           shipment.progress,
+
+        customsStage:
+          tracking.customsStage,
+
+        customsStageIndex:
+          tracking.customsStageIndex,
       });
     } catch (error) {
       console.error(
@@ -1195,17 +1778,41 @@ export const updateShipmentStatus =
         error
       );
 
+      /*
+       * Duplicate key can happen for the protected
+       * Booked / Picked Up / Delivered events.
+       *
+       * Customs Clearance is intentionally NOT
+       * protected by the unique index.
+       */
+
       if (
         error.code === 11000
       ) {
         return res.status(400).json({
           message:
-            "This system status has already been recorded for this shipment",
+            "This protected shipment status has already been recorded.",
+        });
+      }
+
+      /*
+       * Tracking model delivery lock.
+       */
+
+      if (
+        error.message?.includes(
+          "Tracking is locked"
+        )
+      ) {
+        return res.status(400).json({
+          message:
+            "Tracking is locked. Shipment already delivered.",
         });
       }
 
       res.status(500).json({
         message:
+          error.message ||
           "Failed to update shipment",
       });
     }
@@ -1218,10 +1825,19 @@ export const updateShipmentStatus =
 export const deleteShipment =
   async (req, res) => {
     try {
+      const { id } = req.params;
+
+      if (
+        !mongoose.Types.ObjectId.isValid(id)
+      ) {
+        return res.status(400).json({
+          message:
+            "Invalid shipment ID",
+        });
+      }
+
       const shipment =
-        await Shipment.findById(
-          req.params.id
-        );
+        await Shipment.findById(id);
 
       if (!shipment) {
         return res.status(404).json({
