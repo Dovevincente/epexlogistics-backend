@@ -208,13 +208,6 @@ const calculateEstimatedDelivery = (
 
   const today = new Date();
 
-  /*
-   * Approximate middle of delivery window.
-   *
-   * 1-3 days  → 2 days
-   * 6-10 days → 8 days
-   */
-
   let daysToAdd = null;
 
   if (
@@ -268,6 +261,10 @@ const normalizeProgress = (
     return null;
   }
 
+  /*
+   * Delivered is always 100%.
+   */
+
   if (status === "Delivered") {
     return 100;
   }
@@ -301,19 +298,66 @@ const CUSTOMS_STAGES = [
 ];
 
 /* ======================================================
-   🛃 CUSTOMS STAGE INDEX
+   🛃 CUSTOMS PROGRESS
 ====================================================== */
 
-const getCustomsStageIndex = (
+const CUSTOMS_PROGRESS = {
+  "Prepared for Customs": 25,
+  "Checked by Customs": 50,
+  "Released by Customs": 75,
+  "Given to Our Agent": 100,
+};
+
+/* ======================================================
+   🛃 OLD CUSTOMS STAGE ALIASES
+====================================================== */
+
+/*
+ * Keeps old tracking/database records compatible.
+ */
+
+const CUSTOMS_STAGE_ALIASES = {
+  "Shipment Given to Our Agent":
+    "Given to Our Agent",
+};
+
+/* ======================================================
+   🛃 NORMALIZE CUSTOMS STAGE
+====================================================== */
+
+const normalizeCustomsStage = (
   customsStage
 ) => {
   if (!customsStage) {
     return null;
   }
 
+  return (
+    CUSTOMS_STAGE_ALIASES[
+      customsStage
+    ] || customsStage
+  );
+};
+
+/* ======================================================
+   🛃 CUSTOMS STAGE INDEX
+====================================================== */
+
+const getCustomsStageIndex = (
+  customsStage
+) => {
+  const normalizedStage =
+    normalizeCustomsStage(
+      customsStage
+    );
+
+  if (!normalizedStage) {
+    return null;
+  }
+
   const index =
     CUSTOMS_STAGES.indexOf(
-      customsStage
+      normalizedStage
     );
 
   return index === -1
@@ -329,16 +373,20 @@ const buildShipmentSnapshot = (
   shipment
 ) => {
   return {
-    origin: shipment.origin,
+    origin:
+      shipment.origin,
 
     destination:
       shipment.destination,
 
-    weight: shipment.weight,
+    weight:
+      shipment.weight,
 
-    quantity: shipment.quantity,
+    quantity:
+      shipment.quantity,
 
-    price: shipment.price,
+    price:
+      shipment.price,
 
     deliveryRange:
       shipment.deliveryRange,
@@ -397,7 +445,10 @@ const buildReceiverSnapshot = (
 ====================================================== */
 
 const escapeHtml = (value) => {
-  if (value === undefined || value === null) {
+  if (
+    value === undefined ||
+    value === null
+  ) {
     return "";
   }
 
@@ -405,8 +456,14 @@ const escapeHtml = (value) => {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+    .replace(
+      /"/g,
+      "&quot;"
+    )
+    .replace(
+      /'/g,
+      "&#039;"
+    );
 };
 
 /* ======================================================
@@ -455,7 +512,9 @@ export const getShipment = async (
     const { id } = req.params;
 
     if (
-      !mongoose.Types.ObjectId.isValid(id)
+      !mongoose.Types.ObjectId.isValid(
+        id
+      )
     ) {
       return res.status(400).json({
         message:
@@ -533,7 +592,8 @@ export const createShipment = async (
       !destination ||
       weight === undefined ||
       weight === null ||
-      deliveryRange === undefined ||
+      deliveryRange ===
+        undefined ||
       deliveryRange === null ||
       price === undefined ||
       price === null ||
@@ -620,7 +680,9 @@ export const createShipment = async (
     }
 
     if (
-      !Number.isFinite(subtotal) ||
+      !Number.isFinite(
+        subtotal
+      ) ||
       subtotal < 0
     ) {
       return res.status(400).json({
@@ -685,17 +747,6 @@ export const createShipment = async (
         ""
       );
 
-    /*
-     * If origin contains something like:
-     * "Damascus, Syria"
-     *
-     * the helper above may not be enough because
-     * origin is a free-form route string.
-     *
-     * We therefore try it directly first and
-     * fall back to the shipment city/country.
-     */
-
     let finalOriginCoordinates =
       originCoordinates;
 
@@ -722,11 +773,6 @@ export const createShipment = async (
         ""
       );
 
-    /*
-     * Destination may also be a full free-form
-     * address. If geocoding fails, we leave it null.
-     */
-
     /* ==================================================
        CREATE SHIPMENT
     ================================================== */
@@ -742,19 +788,29 @@ export const createShipment = async (
           quote || null,
 
         sender: {
-          name: sender.name,
+          name:
+            sender.name,
+
           email:
             sender.email || "",
-          phone: sender.phone,
+
+          phone:
+            sender.phone,
+
           address:
             sender.address,
         },
 
         receiver: {
-          name: receiver.name,
+          name:
+            receiver.name,
+
           email:
             receiver.email || "",
-          phone: receiver.phone,
+
+          phone:
+            receiver.phone,
+
           address:
             receiver.address,
         },
@@ -795,7 +851,9 @@ export const createShipment = async (
           numericQuantity,
 
         deliveryRange:
-          String(deliveryRange).trim(),
+          String(
+            deliveryRange
+          ).trim(),
 
         estimatedDelivery,
 
@@ -813,7 +871,8 @@ export const createShipment = async (
 
           total,
 
-          currency: "$",
+          currency:
+            "$",
         },
 
         paymentMethod:
@@ -1178,7 +1237,9 @@ export const getShipmentInvoice =
       const { id } = req.params;
 
       if (
-        !mongoose.Types.ObjectId.isValid(id)
+        !mongoose.Types.ObjectId.isValid(
+          id
+        )
       ) {
         return res.status(400).json({
           message:
@@ -1249,6 +1310,7 @@ export const updateShipmentStatus =
         progress,
         customsStage,
         estimatedArrival,
+        coordinates,
       } = req.body;
 
       /* ==================================================
@@ -1278,17 +1340,29 @@ export const updateShipmentStatus =
       }
 
       /* ==================================================
+         NORMALIZE CUSTOMS STAGE
+      ================================================== */
+
+      const normalizedCustomsStage =
+        status ===
+        "Customs Clearance"
+          ? normalizeCustomsStage(
+              customsStage
+            )
+          : null;
+
+      /* ==================================================
          CUSTOMS VALIDATION
       ================================================== */
 
       if (
         status ===
-          "Customs Clearance"
+        "Customs Clearance"
       ) {
         if (
-          customsStage &&
+          normalizedCustomsStage &&
           !CUSTOMS_STAGES.includes(
-            customsStage
+            normalizedCustomsStage
           )
         ) {
           return res.status(400).json({
@@ -1321,7 +1395,9 @@ export const updateShipmentStatus =
       const { id } = req.params;
 
       if (
-        !mongoose.Types.ObjectId.isValid(id)
+        !mongoose.Types.ObjectId.isValid(
+          id
+        )
       ) {
         return res.status(400).json({
           message:
@@ -1356,7 +1432,7 @@ export const updateShipmentStatus =
          PROGRESS
       ================================================== */
 
-      const shipmentProgress =
+      let shipmentProgress =
         normalizeProgress(
           progress,
           status,
@@ -1372,14 +1448,48 @@ export const updateShipmentStatus =
         });
       }
 
+      /*
+       * CUSTOMS PROGRESS IS CONTROLLED
+       * BY THE CUSTOMS STAGE.
+       *
+       * This keeps shipment.jsx and backend
+       * perfectly synchronized.
+       */
+
+      if (
+        status ===
+          "Customs Clearance" &&
+        normalizedCustomsStage
+      ) {
+        shipmentProgress =
+          CUSTOMS_PROGRESS[
+            normalizedCustomsStage
+          ];
+      }
+
+      /*
+       * 100% is allowed for:
+       *
+       * 1. Delivered
+       * 2. Customs Clearance +
+       *    Given to Our Agent
+       */
+
+      const customsCompleted =
+        status ===
+          "Customs Clearance" &&
+        normalizedCustomsStage ===
+          "Given to Our Agent";
+
       if (
         shipmentProgress ===
           100 &&
-        status !== "Delivered"
+        status !== "Delivered" &&
+        !customsCompleted
       ) {
         return res.status(400).json({
           message:
-            "A shipment at 100% progress must have Delivered status",
+            "A shipment at 100% progress must have Delivered status unless customs clearance has been completed.",
         });
       }
 
@@ -1387,11 +1497,44 @@ export const updateShipmentStatus =
          LOCATION
       ================================================== */
 
-      let coordinates =
+      /*
+       * shipment.jsx sends:
+       *
+       * coordinates: {
+       *   lat,
+       *   lng
+       * }
+       *
+       * This backend supports BOTH:
+       *
+       * lat/lng
+       *
+       * and
+       *
+       * coordinates.lat/lng
+       */
+
+      let coordinatesInput =
         normalizeCoordinates(
           lat,
           lng
         );
+
+      if (
+        coordinatesInput.lat ===
+          null ||
+        coordinatesInput.lng ===
+          null
+      ) {
+        coordinatesInput =
+          normalizeCoordinates(
+            coordinates?.lat,
+            coordinates?.lng
+          );
+      }
+
+      let finalCoordinates =
+        coordinatesInput;
 
       /*
        * If admin didn't provide coordinates,
@@ -1399,10 +1542,12 @@ export const updateShipmentStatus =
        */
 
       if (
-        coordinates.lat === null ||
-        coordinates.lng === null
+        finalCoordinates.lat ===
+          null ||
+        finalCoordinates.lng ===
+          null
       ) {
-        coordinates =
+        finalCoordinates =
           await geocodeLocation(
             city,
             country
@@ -1438,8 +1583,7 @@ export const updateShipmentStatus =
         null;
 
       /* ==================================================
-         IF ORIGIN COORDINATES DON'T EXIST
-         TRY TO GEOCODE SHIPMENT CITY/COUNTRY
+         ORIGIN COORDINATES
       ================================================== */
 
       if (
@@ -1452,8 +1596,11 @@ export const updateShipmentStatus =
             shipment.country
           );
 
-        originLat = origin.lat;
-        originLng = origin.lng;
+        originLat =
+          origin.lat;
+
+        originLng =
+          origin.lng;
       }
 
       /* ==================================================
@@ -1486,9 +1633,12 @@ export const updateShipmentStatus =
         destinationLat !== null &&
         destinationLng !== null
       ) {
-        coordinates = {
-          lat: destinationLat,
-          lng: destinationLng,
+        finalCoordinates = {
+          lat:
+            destinationLat,
+
+          lng:
+            destinationLng,
         };
       }
 
@@ -1500,7 +1650,7 @@ export const updateShipmentStatus =
         status ===
           "Customs Clearance"
           ? getCustomsStageIndex(
-              customsStage
+              normalizedCustomsStage
             )
           : null;
 
@@ -1524,7 +1674,8 @@ export const updateShipmentStatus =
           customsStage:
             status ===
             "Customs Clearance"
-              ? customsStage || null
+              ? normalizedCustomsStage ||
+                null
               : null,
 
           customsStageIndex,
@@ -1536,10 +1687,10 @@ export const updateShipmentStatus =
             String(country).trim(),
 
           lat:
-            coordinates.lat,
+            finalCoordinates.lat,
 
           lng:
-            coordinates.lng,
+            finalCoordinates.lng,
 
           originLat,
 
@@ -1603,10 +1754,10 @@ export const updateShipmentStatus =
           String(country).trim(),
 
         lat:
-          coordinates.lat,
+          finalCoordinates.lat,
 
         lng:
-          coordinates.lng,
+          finalCoordinates.lng,
 
         updatedAt:
           new Date(),
@@ -1650,14 +1801,14 @@ export const updateShipmentStatus =
           const customsText =
             status ===
               "Customs Clearance" &&
-            customsStage
+            normalizedCustomsStage
               ? `
                 <p>
                   <strong>
                     Customs Stage:
                   </strong>
                   ${escapeHtml(
-                    customsStage
+                    normalizedCustomsStage
                   )}
                 </p>
               `
@@ -1778,13 +1929,9 @@ export const updateShipmentStatus =
         error
       );
 
-      /*
-       * Duplicate key can happen for the protected
-       * Booked / Picked Up / Delivered events.
-       *
-       * Customs Clearance is intentionally NOT
-       * protected by the unique index.
-       */
+      /* ==================================================
+         DUPLICATE KEY
+      ================================================== */
 
       if (
         error.code === 11000
@@ -1795,9 +1942,9 @@ export const updateShipmentStatus =
         });
       }
 
-      /*
-       * Tracking model delivery lock.
-       */
+      /* ==================================================
+         TRACKING DELIVERY LOCK
+      ================================================== */
 
       if (
         error.message?.includes(
@@ -1828,7 +1975,9 @@ export const deleteShipment =
       const { id } = req.params;
 
       if (
-        !mongoose.Types.ObjectId.isValid(id)
+        !mongoose.Types.ObjectId.isValid(
+          id
+        )
       ) {
         return res.status(400).json({
           message:
