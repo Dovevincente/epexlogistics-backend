@@ -297,7 +297,7 @@ const CUSTOMS_STAGES = [
   "Prepared for Customs",
   "Checked by Customs",
   "Released by Customs",
-  "Shipment Given to Our Agent",
+  "Given to Our Agent",
 ];
 
 /* ======================================================
