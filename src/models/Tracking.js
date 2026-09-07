@@ -2,13 +2,27 @@ import mongoose from "mongoose";
 
 /* =========================================================
    CUSTOMS STAGES
+
+   These values MUST match:
+
+   - controller/shipment.js
+   - models/Shipment.js
+   - admin/shipment.jsx
+   - Track.jsx
+
+   Progress:
+
+   Prepared for Customs      = 25%
+   Checked by Customs        = 50%
+   Released by Customs       = 75%
+   Given to Our Agent        = 100%
 ========================================================= */
 
 export const CUSTOMS_STAGES = [
   "Prepared for Customs",
   "Checked by Customs",
   "Released by Customs",
-  "Shipment Given to Our Agent",
+  "Given to Our Agent",
 ];
 
 /* =========================================================
@@ -33,6 +47,7 @@ const trackingSchema = new mongoose.Schema(
       required: true,
       index: true,
       trim: true,
+      uppercase: true,
     },
 
     /* ======================================================
@@ -59,6 +74,7 @@ const trackingSchema = new mongoose.Schema(
        CUSTOMS STAGE
 
        Only used when status is:
+
        "Customs Clearance"
 
        Flow:
@@ -69,7 +85,7 @@ const trackingSchema = new mongoose.Schema(
               ↓
        Released by Customs
               ↓
-       Shipment Given to Our Agent
+       Given to Our Agent
     ====================================================== */
 
     customsStage: {
@@ -85,7 +101,7 @@ const trackingSchema = new mongoose.Schema(
        0 = Prepared for Customs
        1 = Checked by Customs
        2 = Released by Customs
-       3 = Shipment Given to Our Agent
+       3 = Given to Our Agent
     ====================================================== */
 
     customsStageIndex: {
@@ -99,7 +115,10 @@ const trackingSchema = new mongoose.Schema(
        PROGRESS
 
        0   = Booked
-       100 = Delivered
+       25  = Prepared for Customs
+       50  = Checked by Customs
+       75  = Released by Customs
+       100 = Given to Our Agent / Delivered
     ====================================================== */
 
     progress: {
@@ -132,11 +151,15 @@ const trackingSchema = new mongoose.Schema(
     lat: {
       type: Number,
       default: null,
+      min: -90,
+      max: 90,
     },
 
     lng: {
       type: Number,
       default: null,
+      min: -180,
+      max: 180,
     },
 
     /* ======================================================
@@ -149,11 +172,15 @@ const trackingSchema = new mongoose.Schema(
     originLat: {
       type: Number,
       default: null,
+      min: -90,
+      max: 90,
     },
 
     originLng: {
       type: Number,
       default: null,
+      min: -180,
+      max: 180,
     },
 
     /* ======================================================
@@ -163,11 +190,15 @@ const trackingSchema = new mongoose.Schema(
     destinationLat: {
       type: Number,
       default: null,
+      min: -90,
+      max: 90,
     },
 
     destinationLng: {
       type: Number,
       default: null,
+      min: -180,
+      max: 180,
     },
 
     /* ======================================================
@@ -350,6 +381,24 @@ const trackingSchema = new mongoose.Schema(
 );
 
 /* =========================================================
+   NORMALIZE TRACKING NUMBER
+========================================================= */
+
+trackingSchema.pre(
+  "validate",
+  function (next) {
+    if (this.trackingNumber) {
+      this.trackingNumber =
+        this.trackingNumber
+          .trim()
+          .toUpperCase();
+    }
+
+    next();
+  }
+);
+
+/* =========================================================
    NORMALIZE PROGRESS
 ========================================================= */
 
@@ -372,6 +421,20 @@ trackingSchema.pre(
      */
 
     if (this.status === "Delivered") {
+      progress = 100;
+    }
+
+    /*
+     * Given to Our Agent is the final
+     * customs-clearance stage and therefore
+     * is allowed to be 100%.
+     */
+
+    if (
+      this.status === "Customs Clearance" &&
+      this.customsStage ===
+        "Given to Our Agent"
+    ) {
       progress = 100;
     }
 
@@ -459,6 +522,43 @@ trackingSchema.pre(
           )
         );
       }
+    }
+
+    next();
+  }
+);
+
+/* =========================================================
+   CUSTOMS PROGRESS VALIDATION
+========================================================= */
+
+trackingSchema.pre(
+  "validate",
+  function (next) {
+    if (
+      this.status !== "Customs Clearance" ||
+      !this.customsStage
+    ) {
+      return next();
+    }
+
+    const CUSTOMS_PROGRESS = {
+      "Prepared for Customs": 25,
+      "Checked by Customs": 50,
+      "Released by Customs": 75,
+      "Given to Our Agent": 100,
+    };
+
+    const expectedProgress =
+      CUSTOMS_PROGRESS[
+        this.customsStage
+      ];
+
+    if (
+      expectedProgress !== undefined
+    ) {
+      this.progress =
+        expectedProgress;
     }
 
     next();

@@ -261,10 +261,6 @@ const normalizeProgress = (
     return null;
   }
 
-  /*
-   * Delivered is always 100%.
-   */
-
   if (status === "Delivered") {
     return 100;
   }
@@ -311,10 +307,6 @@ const CUSTOMS_PROGRESS = {
 /* ======================================================
    🛃 OLD CUSTOMS STAGE ALIASES
 ====================================================== */
-
-/*
- * Keeps old tracking/database records compatible.
- */
 
 const CUSTOMS_STAGE_ALIASES = {
   "Shipment Given to Our Agent":
@@ -905,6 +897,14 @@ export const createShipment = async (
         progress:
           0,
 
+        customsStage:
+          null,
+
+        customs: {
+          stage:
+            null,
+        },
+
         isDelivered:
           false,
 
@@ -928,6 +928,12 @@ export const createShipment = async (
 
         progress:
           0,
+
+        customsStage:
+          null,
+
+        customsStageIndex:
+          null,
 
         city:
           shipment.city,
@@ -1170,6 +1176,14 @@ export const getPublicShipmentInvoice =
 
           progress:
             shipment.progress ?? 0,
+
+          customsStage:
+            shipment.customsStage ||
+            null,
+
+          customs:
+            shipment.customs ||
+            null,
 
           currentLocation:
             shipment.currentLocation ||
@@ -1451,9 +1465,6 @@ export const updateShipmentStatus =
       /*
        * CUSTOMS PROGRESS IS CONTROLLED
        * BY THE CUSTOMS STAGE.
-       *
-       * This keeps shipment.jsx and backend
-       * perfectly synchronized.
        */
 
       if (
@@ -1496,23 +1507,6 @@ export const updateShipmentStatus =
       /* ==================================================
          LOCATION
       ================================================== */
-
-      /*
-       * shipment.jsx sends:
-       *
-       * coordinates: {
-       *   lat,
-       *   lng
-       * }
-       *
-       * This backend supports BOTH:
-       *
-       * lat/lng
-       *
-       * and
-       *
-       * coordinates.lat/lng
-       */
 
       let coordinatesInput =
         normalizeCoordinates(
@@ -1655,6 +1649,108 @@ export const updateShipmentStatus =
           : null;
 
       /* ==================================================
+         UPDATE SHIPMENT FIRST
+         
+         IMPORTANT:
+         The customs stage is now persisted
+         directly on the Shipment document.
+      ================================================== */
+
+      shipment.status =
+        status;
+
+      shipment.progress =
+        shipmentProgress;
+
+      shipment.city =
+        String(city).trim();
+
+      shipment.country =
+        String(country).trim();
+
+      /*
+       * THIS WAS THE MISSING PART.
+       *
+       * Keep Shipment.customsStage synchronized
+       * with the selected customs stage.
+       */
+
+      if (
+        status ===
+        "Customs Clearance"
+      ) {
+        shipment.customsStage =
+          normalizedCustomsStage ||
+          null;
+      } else {
+        shipment.customsStage =
+          null;
+      }
+
+      /*
+       * Keep the nested customs object
+       * synchronized as well.
+       */
+
+      if (
+        !shipment.customs
+      ) {
+        shipment.customs = {};
+      }
+
+      if (
+        status ===
+        "Customs Clearance"
+      ) {
+        shipment.customs.stage =
+          normalizedCustomsStage ||
+          null;
+      } else {
+        shipment.customs.stage =
+          null;
+      }
+
+      shipment.currentLocation = {
+        city:
+          String(city).trim(),
+
+        country:
+          String(country).trim(),
+
+        lat:
+          finalCoordinates.lat,
+
+        lng:
+          finalCoordinates.lng,
+
+        updatedAt:
+          new Date(),
+      };
+
+      /* ==================================================
+         DELIVERED
+      ================================================== */
+
+      if (
+        status === "Delivered"
+      ) {
+        shipment.progress =
+          100;
+
+        shipment.isDelivered =
+          true;
+
+        shipment.deliveredAt =
+          new Date();
+      }
+
+      /* ==================================================
+         SAVE SHIPMENT
+      ================================================== */
+
+      await shipment.save();
+
+      /* ==================================================
          TRACKING EVENT
       ================================================== */
 
@@ -1731,58 +1827,6 @@ export const updateShipmentStatus =
         });
 
       /* ==================================================
-         UPDATE SHIPMENT
-      ================================================== */
-
-      shipment.status =
-        status;
-
-      shipment.progress =
-        shipmentProgress;
-
-      shipment.city =
-        String(city).trim();
-
-      shipment.country =
-        String(country).trim();
-
-      shipment.currentLocation = {
-        city:
-          String(city).trim(),
-
-        country:
-          String(country).trim(),
-
-        lat:
-          finalCoordinates.lat,
-
-        lng:
-          finalCoordinates.lng,
-
-        updatedAt:
-          new Date(),
-      };
-
-      /* ==================================================
-         DELIVERED
-      ================================================== */
-
-      if (
-        status === "Delivered"
-      ) {
-        shipment.progress =
-          100;
-
-        shipment.isDelivered =
-          true;
-
-        shipment.deliveredAt =
-          new Date();
-      }
-
-      await shipment.save();
-
-      /* ==================================================
          EMAIL NOTIFICATION
       ================================================== */
 
@@ -1845,9 +1889,7 @@ export const updateShipmentStatus =
                   )}
                 </p>
 
-                ${
-                  customsText
-                }
+                ${customsText}
 
                 <p>
                   <strong>
@@ -1918,10 +1960,10 @@ export const updateShipmentStatus =
           shipment.progress,
 
         customsStage:
-          tracking.customsStage,
+          normalizedCustomsStage,
 
         customsStageIndex:
-          tracking.customsStageIndex,
+          customsStageIndex,
       });
     } catch (error) {
       console.error(

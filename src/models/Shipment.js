@@ -17,19 +17,19 @@ const SHIPMENT_STATUSES = [
 /* =========================================================
    CUSTOMS STAGES
 
-   These correspond directly with Track.jsx:
+   These MUST match the controller and Track.jsx exactly:
 
-   0 = Prepared for Customs
-   1 = Checked by Customs
-   2 = Released by Customs
-   3 = Given to Our Agent
+   1 = Prepared for Customs
+   2 = Checked by Customs
+   3 = Released by Customs
+   4 = Given to Our Agent
 ========================================================= */
 
 const CUSTOMS_STAGES = [
-  "Prepared",
-  "Checked",
-  "Released",
-  "Agent",
+  "Prepared for Customs",
+  "Checked by Customs",
+  "Released by Customs",
+  "Given to Our Agent",
 ];
 
 /* =========================================================
@@ -153,21 +153,7 @@ const shipmentSchema = new mongoose.Schema(
 
     /* ======================================================
        CURRENT LOCATION
-       
-       Kept for compatibility with Track.jsx.
-
-       Track.jsx supports:
-
-       shipment.currentLocation.city
-       shipment.currentLocation.country
-       shipment.currentLocation.lat
-       shipment.currentLocation.lng
-
-       It also supports the older:
-
-       shipment.city
-       shipment.country
-====================================================== */
+    ====================================================== */
 
     city: {
       type: String,
@@ -382,9 +368,10 @@ const shipmentSchema = new mongoose.Schema(
        PROGRESS
 
        0   = Booked
-       100 = Delivered
-
-       Track.jsx displays this directly.
+       25  = Prepared for Customs
+       50  = Checked by Customs
+       75  = Released by Customs
+       100 = Given to Our Agent OR Delivered
     ====================================================== */
 
     progress: {
@@ -397,13 +384,10 @@ const shipmentSchema = new mongoose.Schema(
     /* ======================================================
        CUSTOMS CLEARANCE
 
-       Used by Track.jsx:
+       These values MUST match the admin controller.
 
        shipment.customsStage
        shipment.customs.stage
-
-       We keep customsStage directly on the shipment
-       because it makes admin updates and tracking simple.
     ====================================================== */
 
     customsStage: {
@@ -448,14 +432,6 @@ const shipmentSchema = new mongoose.Schema(
 
     /* ======================================================
        DELIVERY LOCK
-       
-       Once delivered:
-
-       isDelivered = true
-       deliveredAt = delivery date
-
-       The tracking system should then prevent ordinary
-       tracking events from being added.
     ====================================================== */
 
     isDelivered: {
@@ -526,9 +502,6 @@ shipmentSchema.virtual("isInvoicePaid").get(function () {
 
 /* =========================================================
    CURRENT LOCATION VIRTUAL
-       
-   This gives us a safe fallback when older shipments
-   only have city/country populated.
 ========================================================= */
 
 shipmentSchema.virtual("currentCity").get(function () {
@@ -585,21 +558,15 @@ shipmentSchema.pre("validate", function (next) {
 
 /* =========================================================
    DELIVERY STATE SYNCHRONIZATION
-       
-   When shipment becomes Delivered:
-
-   status       -> Delivered
-   progress     -> 100
-   isDelivered  -> true
-   deliveredAt  -> current date
 ========================================================= */
 
 shipmentSchema.pre(
   "save",
   function (next) {
-    if (
-      this.status === "Delivered"
-    ) {
+    /*
+     * Delivered shipments are always 100%.
+     */
+    if (this.status === "Delivered") {
       this.progress = 100;
 
       if (!this.isDelivered) {
@@ -612,8 +579,8 @@ shipmentSchema.pre(
     }
 
     /*
-     * If an administrator manually marks the shipment
-     * as delivered, make sure the status also agrees.
+     * If isDelivered is already true, force
+     * the shipment back to Delivered state.
      */
     if (
       this.isDelivered === true &&
@@ -633,18 +600,34 @@ shipmentSchema.pre(
 
 /* =========================================================
    PREVENT INVALID DELIVERED STATE
+
+   IMPORTANT:
+
+   100% is allowed for:
+
+   1. Delivered
+   2. Customs Clearance + Given to Our Agent
+
+   This is what allows the final customs stage
+   to reach 100% without marking the shipment
+   as delivered.
 ========================================================= */
 
 shipmentSchema.pre(
   "save",
   function (next) {
+    const customsCompleted =
+      this.status === "Customs Clearance" &&
+      this.customsStage === "Given to Our Agent";
+
     if (
       this.progress === 100 &&
-      this.status !== "Delivered"
+      this.status !== "Delivered" &&
+      !customsCompleted
     ) {
       return next(
         new Error(
-          "A shipment cannot have 100% progress unless it is Delivered."
+          "A shipment at 100% progress must have Delivered status unless customs clearance has been completed."
         )
       );
     }
@@ -662,7 +645,7 @@ shipmentSchema.pre(
 
 /* =========================================================
    CUSTOMS STATE SYNCHRONIZATION
-       
+
    Keep:
 
    customsStage
@@ -677,6 +660,26 @@ shipmentSchema.pre(
 shipmentSchema.pre(
   "save",
   function (next) {
+    /*
+     * Customs Clearance is the only status
+     * that should have a customs stage.
+     */
+    if (
+      this.status !== "Customs Clearance"
+    ) {
+      this.customsStage = null;
+
+      if (this.customs) {
+        this.customs.stage = null;
+      }
+
+      return next();
+    }
+
+    /*
+     * If direct customsStage exists,
+     * make it the primary value.
+     */
     if (
       this.customsStage &&
       !this.customs?.stage
@@ -685,6 +688,10 @@ shipmentSchema.pre(
         this.customsStage;
     }
 
+    /*
+     * If only customs.stage exists,
+     * copy it to customsStage.
+     */
     if (
       this.customs?.stage &&
       !this.customsStage
@@ -694,9 +701,8 @@ shipmentSchema.pre(
     }
 
     /*
-     * If both exist but differ, the direct
-     * customsStage field is treated as the
-     * primary value.
+     * If both exist but differ,
+     * direct customsStage wins.
      */
     if (
       this.customsStage &&
@@ -722,28 +728,32 @@ shipmentSchema.pre(
     const now = new Date();
 
     if (
-      this.customsStage === "Prepared" &&
+      this.customsStage ===
+        "Prepared for Customs" &&
       !this.customs?.startedAt
     ) {
       this.customs.startedAt = now;
     }
 
     if (
-      this.customsStage === "Checked" &&
+      this.customsStage ===
+        "Checked by Customs" &&
       !this.customs?.checkedAt
     ) {
       this.customs.checkedAt = now;
     }
 
     if (
-      this.customsStage === "Released" &&
+      this.customsStage ===
+        "Released by Customs" &&
       !this.customs?.releasedAt
     ) {
       this.customs.releasedAt = now;
     }
 
     if (
-      this.customsStage === "Agent" &&
+      this.customsStage ===
+        "Given to Our Agent" &&
       !this.customs?.agentReceivedAt
     ) {
       this.customs.agentReceivedAt = now;
