@@ -10,7 +10,7 @@ import mongoose from "mongoose";
    - admin/shipment.jsx
    - Track.jsx
 
-   Progress:
+   Customs progress is SEPARATE from shipment progress.
 
    Prepared for Customs      = 25%
    Checked by Customs        = 50%
@@ -24,6 +24,13 @@ export const CUSTOMS_STAGES = [
   "Released by Customs",
   "Given to Our Agent",
 ];
+
+export const CUSTOMS_PROGRESS = {
+  "Prepared for Customs": 25,
+  "Checked by Customs": 50,
+  "Released by Customs": 75,
+  "Given to Our Agent": 100,
+};
 
 /* =========================================================
    TRACKING SCHEMA
@@ -73,19 +80,7 @@ const trackingSchema = new mongoose.Schema(
     /* ======================================================
        CUSTOMS STAGE
 
-       Only used when status is:
-
-       "Customs Clearance"
-
-       Flow:
-
-       Prepared for Customs
-              ↓
-       Checked by Customs
-              ↓
-       Released by Customs
-              ↓
-       Given to Our Agent
+       This is independent from overall shipment progress.
     ====================================================== */
 
     customsStage: {
@@ -112,16 +107,44 @@ const trackingSchema = new mongoose.Schema(
     },
 
     /* ======================================================
-       PROGRESS
+       OVERALL SHIPMENT PROGRESS
+
+       This field ONLY represents the shipment journey.
 
        0   = Booked
-       25  = Prepared for Customs
-       50  = Checked by Customs
-       75  = Released by Customs
-       100 = Given to Our Agent / Delivered
+       20  = Picked Up
+       60  = In Transit / Customs Clearance / On Hold
+       90  = Out for Delivery
+       100 = Delivered
+
+       IMPORTANT:
+
+       Customs progress NEVER changes this field.
+
+       Customs reaching 100% does NOT make the shipment
+       100% complete.
     ====================================================== */
 
     progress: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100,
+    },
+
+    /* ======================================================
+       CUSTOMS PROGRESS
+
+       Completely independent from shipment progress.
+
+       0   = No customs process
+       25  = Prepared for Customs
+       50  = Checked by Customs
+       75  = Released by Customs
+       100 = Given to Our Agent
+    ====================================================== */
+
+    customsProgress: {
       type: Number,
       default: 0,
       min: 0,
@@ -164,9 +187,6 @@ const trackingSchema = new mongoose.Schema(
 
     /* ======================================================
        ORIGIN COORDINATES
-
-       Used for calculating the shipment's
-       position along the route.
     ====================================================== */
 
     originLat: {
@@ -255,9 +275,6 @@ const trackingSchema = new mongoose.Schema(
 
     /* ======================================================
        SENDER SNAPSHOT
-
-       Keeps the sender information that existed
-       when the tracking event was created.
     ====================================================== */
 
     sender: {
@@ -388,10 +405,9 @@ trackingSchema.pre(
   "validate",
   function (next) {
     if (this.trackingNumber) {
-      this.trackingNumber =
-        this.trackingNumber
-          .trim()
-          .toUpperCase();
+      this.trackingNumber = this.trackingNumber
+        .trim()
+        .toUpperCase();
     }
 
     next();
@@ -399,7 +415,7 @@ trackingSchema.pre(
 );
 
 /* =========================================================
-   NORMALIZE PROGRESS
+   NORMALIZE OVERALL SHIPMENT PROGRESS
 ========================================================= */
 
 trackingSchema.pre(
@@ -417,28 +433,63 @@ trackingSchema.pre(
     );
 
     /*
-     * Delivered must always be 100%.
+     * ONLY Delivered can have overall
+     * shipment progress of 100%.
      */
 
     if (this.status === "Delivered") {
       progress = 100;
-    }
-
-    /*
-     * Given to Our Agent is the final
-     * customs-clearance stage and therefore
-     * is allowed to be 100%.
-     */
-
-    if (
-      this.status === "Customs Clearance" &&
-      this.customsStage ===
-        "Given to Our Agent"
-    ) {
-      progress = 100;
+    } else if (progress >= 100) {
+      progress = 99;
     }
 
     this.progress = progress;
+
+    next();
+  }
+);
+
+/* =========================================================
+   NORMALIZE CUSTOMS PROGRESS
+========================================================= */
+
+trackingSchema.pre(
+  "validate",
+  function (next) {
+    let customsProgress =
+      Number(this.customsProgress);
+
+    if (Number.isNaN(customsProgress)) {
+      customsProgress = 0;
+    }
+
+    customsProgress = Math.max(
+      0,
+      Math.min(100, customsProgress)
+    );
+
+    /*
+     * Customs progress is independent.
+     */
+
+    if (
+      this.status !== "Customs Clearance" &&
+      !this.customsStage
+    ) {
+      /*
+       * Do not automatically erase customsProgress.
+       *
+       * A completed customs process can remain at
+       * 100% after the shipment leaves customs.
+       */
+      this.customsProgress =
+        customsProgress;
+
+      return next();
+    }
+
+    this.customsProgress =
+      customsProgress;
 
     next();
   }
@@ -456,11 +507,14 @@ trackingSchema.pre(
      * a customs stage.
      */
 
-    if (
-      this.status !== "Customs Clearance"
-    ) {
+    if (this.status !== "Customs Clearance") {
       this.customsStage = null;
       this.customsStageIndex = null;
+
+      /*
+       * Keep customsProgress because customs
+       * progress is independent of shipment status.
+       */
 
       return next();
     }
@@ -535,19 +589,14 @@ trackingSchema.pre(
 trackingSchema.pre(
   "validate",
   function (next) {
-    if (
-      this.status !== "Customs Clearance" ||
-      !this.customsStage
-    ) {
+    /*
+     * If there is no customs stage, preserve
+     * whatever customsProgress the controller supplied.
+     */
+
+    if (!this.customsStage) {
       return next();
     }
-
-    const CUSTOMS_PROGRESS = {
-      "Prepared for Customs": 25,
-      "Checked by Customs": 50,
-      "Released by Customs": 75,
-      "Given to Our Agent": 100,
-    };
 
     const expectedProgress =
       CUSTOMS_PROGRESS[
@@ -557,8 +606,41 @@ trackingSchema.pre(
     if (
       expectedProgress !== undefined
     ) {
-      this.progress =
+      /*
+       * IMPORTANT:
+
+       * This updates customsProgress,
+       * NOT overall shipment progress.
+       */
+
+      this.customsProgress =
         expectedProgress;
+    }
+
+    next();
+  }
+);
+
+/* =========================================================
+   PREVENT INVALID OVERALL PROGRESS
+
+   Only Delivered can be 100%.
+========================================================= */
+
+trackingSchema.pre(
+  "validate",
+  function (next) {
+    if (
+      this.status !== "Delivered" &&
+      this.progress >= 100
+    ) {
+      this.progress = 99;
+    }
+
+    if (
+      this.status === "Delivered"
+    ) {
+      this.progress = 100;
     }
 
     next();
@@ -573,6 +655,22 @@ trackingSchema.pre(
 
    Customs Clearance is intentionally excluded
    because multiple customs updates are allowed.
+
+   Example:
+
+   Shipment
+      ↓
+   Customs Clearance — Airport A
+      ↓
+   In Transit
+      ↓
+   Customs Clearance — Airport B
+      ↓
+   In Transit
+      ↓
+   Out for Delivery
+      ↓
+   Delivered
 ========================================================= */
 
 trackingSchema.index(
@@ -617,8 +715,6 @@ trackingSchema.index({
 
 /* =========================================================
    LOCATION INDEX
-
-   Useful when retrieving events by coordinates.
 ========================================================= */
 
 trackingSchema.index({
@@ -638,9 +734,7 @@ trackingSchema.pre(
        * The Delivered event itself is allowed.
        */
 
-      if (
-        this.status === "Delivered"
-      ) {
+      if (this.status === "Delivered") {
         return next();
       }
 

@@ -8,17 +8,24 @@ import { sendEmail } from "../utils/email.js";
    🌍 GEOCODING
 ====================================================== */
 
-const geocodeLocation = async (city, country) => {
+const geocodeLocation = async (
+  city,
+  country = ""
+) => {
   try {
-    if (!city || !country) {
+    if (!city) {
       return {
         lat: null,
         lng: null,
       };
     }
 
+    const queryText = country
+      ? `${city}, ${country}`
+      : String(city).trim();
+
     const query = encodeURIComponent(
-      `${city}, ${country}`
+      queryText
     );
 
     const url =
@@ -45,14 +52,20 @@ const geocodeLocation = async (city, country) => {
       };
     }
 
-    const data = await response.json();
+    const data =
+      await response.json();
 
     if (
       Array.isArray(data) &&
       data.length > 0
     ) {
-      const lat = Number(data[0].lat);
-      const lng = Number(data[0].lon);
+      const lat = Number(
+        data[0].lat
+      );
+
+      const lng = Number(
+        data[0].lon
+      );
 
       if (
         Number.isFinite(lat) &&
@@ -104,12 +117,19 @@ const normalizeCoordinates = (
     };
   }
 
-  const normalizedLat = Number(lat);
-  const normalizedLng = Number(lng);
+  const normalizedLat =
+    Number(lat);
+
+  const normalizedLng =
+    Number(lng);
 
   if (
-    !Number.isFinite(normalizedLat) ||
-    !Number.isFinite(normalizedLng)
+    !Number.isFinite(
+      normalizedLat
+    ) ||
+    !Number.isFinite(
+      normalizedLng
+    )
   ) {
     return {
       lat: null,
@@ -147,11 +167,12 @@ const normalizeCoordinates = (
    🔢 INVOICE NUMBER
 ====================================================== */
 
-const generateInvoiceNumber = () => {
-  return `INV-${Date.now()}-${Math.floor(
-    100 + Math.random() * 900
-  )}`;
-};
+const generateInvoiceNumber =
+  () => {
+    return `INV-${Date.now()}-${Math.floor(
+      100 + Math.random() * 900
+    )}`;
+  };
 
 /* ======================================================
    💰 VAT
@@ -160,9 +181,11 @@ const generateInvoiceNumber = () => {
 const getVatPercentByCountry = (
   country
 ) => {
-  if (!country) return 0;
+  if (!country) {
+    return 0;
+  }
 
-  const c = country
+  const c = String(country)
     .toLowerCase()
     .trim();
 
@@ -192,84 +215,54 @@ const getVatPercentByCountry = (
    📅 DELIVERY DATE
 ====================================================== */
 
-const calculateEstimatedDelivery = (
-  deliveryRange
-) => {
-  if (!deliveryRange) {
-    return null;
-  }
+const calculateEstimatedDelivery =
+  (deliveryRange) => {
+    if (!deliveryRange) {
+      return null;
+    }
 
-  const normalizedRange =
-    String(deliveryRange)
-      .toLowerCase()
-      .replace(/[–—]/g, "-")
-      .replace(/\s+/g, "")
-      .trim();
+    const normalizedRange =
+      String(deliveryRange)
+        .toLowerCase()
+        .replace(/[–—]/g, "-")
+        .replace(/\s+/g, "")
+        .trim();
 
-  const today = new Date();
+    const today = new Date();
 
-  let daysToAdd = null;
+    let daysToAdd = null;
 
-  if (
-    normalizedRange.startsWith("1-3")
-  ) {
-    daysToAdd = 2;
-  } else if (
-    normalizedRange.startsWith("6-10")
-  ) {
-    daysToAdd = 8;
-  }
+    if (
+      normalizedRange.startsWith(
+        "1-3"
+      )
+    ) {
+      daysToAdd = 2;
+    } else if (
+      normalizedRange.startsWith(
+        "6-10"
+      )
+    ) {
+      daysToAdd = 8;
+    }
 
-  if (daysToAdd === null) {
-    return null;
-  }
+    if (daysToAdd === null) {
+      return null;
+    }
 
-  const estimatedDelivery =
-    new Date(today);
+    const estimatedDelivery =
+      new Date(today);
 
-  estimatedDelivery.setDate(
-    estimatedDelivery.getDate() +
-      daysToAdd
-  );
+    estimatedDelivery.setDate(
+      estimatedDelivery.getDate() +
+        daysToAdd
+    );
 
-  return estimatedDelivery;
-};
-
-/* ======================================================
-   📊 VALIDATE PROGRESS
-====================================================== */
-
-const normalizeProgress = (
-  progress,
-  status,
-  fallback = 0
-) => {
-  let value =
-    progress !== undefined &&
-    progress !== null &&
-    progress !== ""
-      ? Number(progress)
-      : Number(fallback);
-
-  if (!Number.isFinite(value)) {
-    return null;
-  }
-
-  value = Math.round(value);
-
-  if (value < 0 || value > 100) {
-    return null;
-  }
-
-  if (status === "Delivered") {
-    return 100;
-  }
-
-  return value;
-};
+    return estimatedDelivery;
+  };
 
 /* ======================================================
-   🚚 ALLOWED STATUSES
+   🚚 ALLOWED SHIPMENT STATUSES
 ====================================================== */
 
 const ALLOWED_STATUSES = [
@@ -281,6 +274,35 @@ const ALLOWED_STATUSES = [
   "Out for Delivery",
   "Delivered",
 ];
+
+/* ======================================================
+   🚚 OVERALL SHIPMENT PROGRESS
+======================================================
+
+   IMPORTANT:
+
+   This percentage represents ONLY the shipment journey.
+
+   Customs progress NEVER changes this value.
+
+   Booked            = 0%
+   Picked Up         = 20%
+   In Transit        = 60%
+   Customs Clearance = 60%
+   On Hold           = 60%
+   Out for Delivery  = 90%
+   Delivered         = 100%
+====================================================== */
+
+const STATUS_PROGRESS = {
+  Booked: 0,
+  "Picked Up": 20,
+  "In Transit": 60,
+  "Customs Clearance": 60,
+  "On Hold": 60,
+  "Out for Delivery": 90,
+  Delivered: 100,
+};
 
 /* ======================================================
    🛃 CUSTOMS STAGES
@@ -305,7 +327,17 @@ const CUSTOMS_PROGRESS = {
 };
 
 /* ======================================================
-   🛃 OLD CUSTOMS STAGE ALIASES
+   🛃 CUSTOMS STATUSES
+====================================================== */
+
+const CUSTOMS_STATUSES = [
+  "In Progress",
+  "Completed",
+  "On Hold",
+];
+
+/* ======================================================
+   🛃 OLD CUSTOMS ALIAS
 ====================================================== */
 
 const CUSTOMS_STAGE_ALIASES = {
@@ -317,126 +349,750 @@ const CUSTOMS_STAGE_ALIASES = {
    🛃 NORMALIZE CUSTOMS STAGE
 ====================================================== */
 
-const normalizeCustomsStage = (
-  customsStage
-) => {
-  if (!customsStage) {
-    return null;
-  }
+const normalizeCustomsStage =
+  (customsStage) => {
+    if (!customsStage) {
+      return null;
+    }
 
-  return (
-    CUSTOMS_STAGE_ALIASES[
-      customsStage
-    ] || customsStage
-  );
-};
+    const value =
+      String(customsStage).trim();
+
+    return (
+      CUSTOMS_STAGE_ALIASES[value] ||
+      value
+    );
+  };
 
 /* ======================================================
    🛃 CUSTOMS STAGE INDEX
 ====================================================== */
 
-const getCustomsStageIndex = (
-  customsStage
+const getCustomsStageIndex =
+  (customsStage) => {
+    const normalizedStage =
+      normalizeCustomsStage(
+        customsStage
+      );
+
+    if (!normalizedStage) {
+      return null;
+    }
+
+    const index =
+      CUSTOMS_STAGES.indexOf(
+        normalizedStage
+      );
+
+    return index === -1
+      ? null
+      : index;
+  };
+
+/* ======================================================
+   🛃 NORMALIZE TEXT
+====================================================== */
+
+const normalizeText = (
+  value
 ) => {
-  const normalizedStage =
-    normalizeCustomsStage(
-      customsStage
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+};
+
+/* ======================================================
+   🛃 BUILD CUSTOMS LOCATION KEY
+======================================================
+
+   Airport code is preferred.
+
+   If no airport code exists,
+   airport name is used.
+
+   If neither exists,
+   city + country are used.
+====================================================== */
+
+const buildCustomsLocationKey =
+  ({
+    airport,
+    airportCode,
+    city,
+    country,
+  }) => {
+    const normalizedAirportCode =
+      normalizeText(
+        airportCode
+      );
+
+    const normalizedAirport =
+      normalizeText(
+        airport
+      );
+
+    const normalizedCity =
+      normalizeText(city);
+
+    const normalizedCountry =
+      normalizeText(country);
+
+    if (
+      normalizedAirportCode
+    ) {
+      return `code:${normalizedAirportCode}`;
+    }
+
+    if (normalizedAirport) {
+      return `airport:${normalizedAirport}|${normalizedCountry}`;
+    }
+
+    return `location:${normalizedCity}|${normalizedCountry}`;
+  };
+
+/* ======================================================
+   🛃 CHECK WHETHER CUSTOMS LOCATIONS MATCH
+====================================================== */
+
+const customsLocationsMatch = (
+  clearance,
+  {
+    airport,
+    airportCode,
+    city,
+    country,
+  }
+) => {
+  const existingCode =
+    normalizeText(
+      clearance?.airportCode
     );
 
-  if (!normalizedStage) {
-    return null;
+  const incomingCode =
+    normalizeText(
+      airportCode
+    );
+
+  /*
+   * If both have airport codes,
+   * compare the codes.
+   */
+
+  if (
+    existingCode &&
+    incomingCode
+  ) {
+    return (
+      existingCode ===
+      incomingCode
+    );
   }
 
-  const index =
-    CUSTOMS_STAGES.indexOf(
-      normalizedStage
+  const existingAirport =
+    normalizeText(
+      clearance?.airport
     );
 
-  return index === -1
-    ? null
-    : index;
+  const incomingAirport =
+    normalizeText(
+      airport
+    );
+
+  /*
+   * If airport names are available,
+   * compare airport + country.
+   */
+
+  if (
+    existingAirport &&
+    incomingAirport
+  ) {
+    return (
+      existingAirport ===
+        incomingAirport &&
+      normalizeText(
+        clearance?.country
+      ) ===
+        normalizeText(country)
+    );
+  }
+
+  /*
+   * Fallback to city + country.
+   */
+
+  return (
+    normalizeText(
+      clearance?.city
+    ) ===
+      normalizeText(city) &&
+    normalizeText(
+      clearance?.country
+    ) ===
+      normalizeText(country)
+  );
 };
+
+/* ======================================================
+   🛃 CHECK CUSTOMS COMPLETION
+====================================================== */
+
+const isCustomsCompleted = (
+  clearance
+) => {
+  if (!clearance) {
+    return false;
+  }
+
+  return (
+    clearance.status ===
+      "Completed" ||
+    Number(clearance.progress) ===
+      100 ||
+    Boolean(
+      clearance.completedAt
+    )
+  );
+};
+
+/* ======================================================
+   🛃 FIND ACTIVE CUSTOMS CLEARANCE
+====================================================== */
+
+const findActiveCustomsClearance =
+  (
+    shipment,
+    location
+  ) => {
+    const clearances =
+      Array.isArray(
+        shipment.customsClearances
+      )
+        ? shipment.customsClearances
+        : [];
+
+    for (
+      let i =
+        clearances.length - 1;
+      i >= 0;
+      i--
+    ) {
+      const clearance =
+        clearances[i];
+
+      if (
+        isCustomsCompleted(
+          clearance
+        )
+      ) {
+        continue;
+      }
+
+      if (
+        customsLocationsMatch(
+          clearance,
+          location
+        )
+      ) {
+        return {
+          clearance,
+          index: i,
+        };
+      }
+    }
+
+    return {
+      clearance: null,
+      index: -1,
+    };
+  };
+
+/* ======================================================
+   🛃 GET LATEST CUSTOMS CLEARANCE
+====================================================== */
+
+const getLatestCustomsClearance =
+  (shipment) => {
+    const clearances =
+      Array.isArray(
+        shipment.customsClearances
+      )
+        ? shipment.customsClearances
+        : [];
+
+    if (!clearances.length) {
+      return null;
+    }
+
+    return clearances[
+      clearances.length - 1
+    ];
+  };
+
+/* ======================================================
+   🛃 GET LATEST COMPLETED CUSTOMS
+====================================================== */
+
+const getLatestCompletedCustoms =
+  (shipment) => {
+    const clearances =
+      Array.isArray(
+        shipment.customsClearances
+      )
+        ? shipment.customsClearances
+        : [];
+
+    for (
+      let i =
+        clearances.length - 1;
+      i >= 0;
+      i--
+    ) {
+      if (
+        isCustomsCompleted(
+          clearances[i]
+        )
+      ) {
+        return clearances[i];
+      }
+    }
+
+    return null;
+  };
+
+/* ======================================================
+   🛃 CREATE NEW CUSTOMS CLEARANCE
+====================================================== */
+
+const createCustomsClearance =
+  ({
+    airport,
+    airportCode,
+    terminal,
+    city,
+    country,
+    coordinates,
+    stage,
+    notes,
+  }) => {
+    const now = new Date();
+
+    const normalizedStage =
+      normalizeCustomsStage(
+        stage
+      ) ||
+      "Prepared for Customs";
+
+    const progress =
+      CUSTOMS_PROGRESS[
+        normalizedStage
+      ];
+
+    return {
+      airport:
+        String(
+          airport || ""
+        ).trim(),
+
+      airportCode:
+        String(
+          airportCode || ""
+        )
+          .trim()
+          .toUpperCase(),
+
+      terminal:
+        String(
+          terminal || ""
+        ).trim(),
+
+      city:
+        String(
+          city || ""
+        ).trim(),
+
+      country:
+        String(
+          country || ""
+        ).trim(),
+
+      status:
+        normalizedStage ===
+        "Given to Our Agent"
+          ? "Completed"
+          : "In Progress",
+
+      stage:
+        normalizedStage,
+
+      progress:
+        progress ?? 25,
+
+      startedAt:
+        now,
+
+      checkedAt:
+        normalizedStage ===
+        "Checked by Customs"
+          ? now
+          : null,
+
+      releasedAt:
+        normalizedStage ===
+        "Released by Customs"
+          ? now
+          : null,
+
+      agentReceivedAt:
+        normalizedStage ===
+        "Given to Our Agent"
+          ? now
+          : null,
+
+      completedAt:
+        normalizedStage ===
+        "Given to Our Agent"
+          ? now
+          : null,
+
+      notes:
+        String(
+          notes || ""
+        ).trim(),
+
+      lat:
+        coordinates?.lat ??
+        null,
+
+      lng:
+        coordinates?.lng ??
+        null,
+    };
+  };
+
+/* ======================================================
+   🛃 APPLY CUSTOMS STAGE
+====================================================== */
+
+const applyCustomsStage =
+  (
+    clearance,
+    stage,
+    notes
+  ) => {
+    const now = new Date();
+
+    const normalizedStage =
+      normalizeCustomsStage(
+        stage
+      );
+
+    if (
+      !normalizedStage ||
+      !CUSTOMS_STAGES.includes(
+        normalizedStage
+      )
+    ) {
+      throw new Error(
+        "Invalid customs stage"
+      );
+    }
+
+    clearance.stage =
+      normalizedStage;
+
+    clearance.progress =
+      CUSTOMS_PROGRESS[
+        normalizedStage
+      ];
+
+    if (
+      notes !== undefined
+    ) {
+      clearance.notes =
+        String(
+          notes || ""
+        ).trim();
+    }
+
+    if (
+      !clearance.startedAt
+    ) {
+      clearance.startedAt =
+        now;
+    }
+
+    /*
+     * Checked
+     */
+
+    if (
+      normalizedStage ===
+        "Checked by Customs" ||
+      normalizedStage ===
+        "Released by Customs" ||
+      normalizedStage ===
+        "Given to Our Agent"
+    ) {
+      if (
+        !clearance.checkedAt
+      ) {
+        clearance.checkedAt =
+          now;
+      }
+    }
+
+    /*
+     * Released
+     */
+
+    if (
+      normalizedStage ===
+        "Released by Customs" ||
+      normalizedStage ===
+        "Given to Our Agent"
+    ) {
+      if (
+        !clearance.releasedAt
+      ) {
+        clearance.releasedAt =
+          now;
+      }
+    }
+
+    /*
+     * Given to agent
+     * means customs is complete.
+     */
+
+    if (
+      normalizedStage ===
+      "Given to Our Agent"
+    ) {
+      clearance.progress =
+        100;
+
+      clearance.status =
+        "Completed";
+
+      if (
+        !clearance.agentReceivedAt
+      ) {
+        clearance.agentReceivedAt =
+          now;
+      }
+
+      if (
+        !clearance.completedAt
+      ) {
+        clearance.completedAt =
+          now;
+      }
+    } else {
+      clearance.status =
+        "In Progress";
+
+      /*
+       * Do not leave a stale completion date
+       * if an admin corrects the stage backwards.
+       */
+
+      clearance.completedAt =
+        null;
+    }
+  };
+
+/* ======================================================
+   🛃 PAUSE INCOMPLETE CUSTOMS
+====================================================== */
+
+const pauseIncompleteCustoms =
+  (shipment) => {
+    if (
+      !Array.isArray(
+        shipment.customsClearances
+      )
+    ) {
+      return;
+    }
+
+    const latest =
+      shipment.customsClearances[
+        shipment.customsClearances
+          .length - 1
+      ];
+
+    if (
+      !latest ||
+      isCustomsCompleted(
+        latest
+      )
+    ) {
+      return;
+    }
+
+    latest.status =
+      "On Hold";
+  };
+
+/* ======================================================
+   🛃 SYNC CURRENT CUSTOMS SUMMARY
+====================================================== */
+
+const syncCustomsSummary =
+  (shipment, clearance) => {
+    if (!shipment.customs) {
+      shipment.customs = {};
+    }
+
+    if (!clearance) {
+      shipment.customsStage =
+        null;
+
+      shipment.customs.stage =
+        null;
+
+      shipment.customs.progress =
+        0;
+
+      shipment.customs.startedAt =
+        null;
+
+      shipment.customs.checkedAt =
+        null;
+
+      shipment.customs.releasedAt =
+        null;
+
+      shipment.customs.agentReceivedAt =
+        null;
+
+      return;
+    }
+
+    shipment.customsStage =
+      clearance.stage ||
+      null;
+
+    shipment.customs.stage =
+      clearance.stage ||
+      null;
+
+    shipment.customs.progress =
+      Number(
+        clearance.progress ?? 0
+      );
+
+    shipment.customs.startedAt =
+      clearance.startedAt ||
+      null;
+
+    shipment.customs.checkedAt =
+      clearance.checkedAt ||
+      null;
+
+    shipment.customs.releasedAt =
+      clearance.releasedAt ||
+      null;
+
+    shipment.customs.agentReceivedAt =
+      clearance.agentReceivedAt ||
+      null;
+
+    /*
+     * IMPORTANT:
+     *
+     * This does NOT modify shipment.progress.
+     */
+  };
 
 /* ======================================================
    📦 SHIPMENT SNAPSHOT
 ====================================================== */
 
-const buildShipmentSnapshot = (
-  shipment
-) => {
-  return {
-    origin:
-      shipment.origin,
+const buildShipmentSnapshot =
+  (shipment) => {
+    return {
+      origin:
+        shipment.origin,
 
-    destination:
-      shipment.destination,
+      destination:
+        shipment.destination,
 
-    weight:
-      shipment.weight,
+      weight:
+        shipment.weight,
 
-    quantity:
-      shipment.quantity,
+      quantity:
+        shipment.quantity,
 
-    price:
-      shipment.price,
+      price:
+        shipment.price,
 
-    deliveryRange:
-      shipment.deliveryRange,
+      deliveryRange:
+        shipment.deliveryRange,
 
-    estimatedDelivery:
-      shipment.estimatedDelivery,
+      estimatedDelivery:
+        shipment.estimatedDelivery,
+    };
   };
-};
 
 /* ======================================================
    👤 SENDER SNAPSHOT
 ====================================================== */
 
-const buildSenderSnapshot = (
-  shipment
-) => {
-  return {
-    name:
-      shipment.sender?.name || "",
+const buildSenderSnapshot =
+  (shipment) => {
+    return {
+      name:
+        shipment.sender?.name ||
+        "",
 
-    email:
-      shipment.sender?.email || "",
+      email:
+        shipment.sender?.email ||
+        "",
 
-    phone:
-      shipment.sender?.phone || "",
+      phone:
+        shipment.sender?.phone ||
+        "",
 
-    address:
-      shipment.sender?.address || "",
+      address:
+        shipment.sender?.address ||
+        "",
+    };
   };
-};
 
 /* ======================================================
    👤 RECEIVER SNAPSHOT
 ====================================================== */
 
-const buildReceiverSnapshot = (
-  shipment
-) => {
-  return {
-    name:
-      shipment.receiver?.name || "",
+const buildReceiverSnapshot =
+  (shipment) => {
+    return {
+      name:
+        shipment.receiver?.name ||
+        "",
 
-    email:
-      shipment.receiver?.email || "",
+      email:
+        shipment.receiver?.email ||
+        "",
 
-    phone:
-      shipment.receiver?.phone || "",
+      phone:
+        shipment.receiver?.phone ||
+        "",
 
-    address:
-      shipment.receiver?.address || "",
+      address:
+        shipment.receiver?.address ||
+        "",
+    };
   };
-};
 
 /* ======================================================
    📧 ESCAPE HTML
 ====================================================== */
 
-const escapeHtml = (value) => {
+const escapeHtml = (
+  value
+) => {
   if (
     value === undefined ||
     value === null
@@ -445,9 +1101,18 @@ const escapeHtml = (value) => {
   }
 
   return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
+    .replace(
+      /&/g,
+      "&amp;"
+    )
+    .replace(
+      /</g,
+      "&lt;"
+    )
+    .replace(
+      />/g,
+      "&gt;"
+    )
     .replace(
       /"/g,
       "&quot;"
@@ -462,644 +1127,692 @@ const escapeHtml = (value) => {
    📦 GET ALL SHIPMENTS
 ====================================================== */
 
-export const getShipments = async (
-  req,
-  res
-) => {
-  try {
-    const shipments =
-      await Shipment.find()
-        .populate(
-          "customer",
-          "name email"
-        )
-        .populate("quote")
-        .sort({
-          createdAt: -1,
-        });
+export const getShipments =
+  async (req, res) => {
+    try {
+      const shipments =
+        await Shipment.find()
+          .populate(
+            "customer",
+            "name email"
+          )
+          .populate("quote")
+          .sort({
+            createdAt: -1,
+          });
 
-    res.json(shipments);
-  } catch (error) {
-    console.error(
-      "Fetch shipments error:",
-      error
-    );
+      res.json(shipments);
+    } catch (error) {
+      console.error(
+        "Fetch shipments error:",
+        error
+      );
 
-    res.status(500).json({
-      message:
-        "Failed to fetch shipments",
-    });
-  }
-};
+      res.status(500).json({
+        message:
+          "Failed to fetch shipments",
+      });
+    }
+  };
 
 /* ======================================================
    📦 GET SINGLE SHIPMENT
 ====================================================== */
 
-export const getShipment = async (
-  req,
-  res
-) => {
-  try {
-    const { id } = req.params;
+export const getShipment =
+  async (req, res) => {
+    try {
+      const { id } =
+        req.params;
 
-    if (
-      !mongoose.Types.ObjectId.isValid(
-        id
-      )
-    ) {
-      return res.status(400).json({
-        message:
-          "Invalid shipment ID",
-      });
-    }
-
-    const shipment =
-      await Shipment.findById(id)
-        .populate(
-          "customer",
-          "name email"
+      if (
+        !mongoose.Types.ObjectId.isValid(
+          id
         )
-        .populate("quote");
+      ) {
+        return res.status(400).json({
+          message:
+            "Invalid shipment ID",
+        });
+      }
 
-    if (!shipment) {
-      return res.status(404).json({
+      const shipment =
+        await Shipment.findById(id)
+          .populate(
+            "customer",
+            "name email"
+          )
+          .populate("quote");
+
+      if (!shipment) {
+        return res.status(404).json({
+          message:
+            "Shipment not found",
+        });
+      }
+
+      res.json(shipment);
+    } catch (error) {
+      console.error(
+        "Get shipment error:",
+        error
+      );
+
+      res.status(500).json({
         message:
-          "Shipment not found",
+          "Failed to fetch shipment",
       });
     }
-
-    res.json(shipment);
-  } catch (error) {
-    console.error(
-      "Get shipment error:",
-      error
-    );
-
-    res.status(500).json({
-      message:
-        "Failed to fetch shipment",
-    });
-  }
-};
+  };
 
 /* ======================================================
    📦 CREATE SHIPMENT
 ====================================================== */
 
-export const createShipment = async (
-  req,
-  res
-) => {
-  try {
-    const {
-      customer,
-      quote,
-      sender,
-      receiver,
-      origin,
-      destination,
-      weight,
-      quantity,
-      deliveryRange,
-      price,
-      city,
-      country,
-      adminNote,
-      paymentMethod,
-    } = req.body;
-
-    /* ==================================================
-       VALIDATION
-    ================================================== */
-
-    if (
-      !sender?.name ||
-      !sender?.phone ||
-      !sender?.address ||
-      !receiver?.name ||
-      !receiver?.phone ||
-      !receiver?.address ||
-      !origin ||
-      !destination ||
-      weight === undefined ||
-      weight === null ||
-      deliveryRange ===
-        undefined ||
-      deliveryRange === null ||
-      price === undefined ||
-      price === null ||
-      !city ||
-      !country
-    ) {
-      return res.status(400).json({
-        message:
-          "Missing required shipment details",
-      });
-    }
-
-    /* ==================================================
-       CUSTOMER ID
-    ================================================== */
-
-    if (
-      customer &&
-      !mongoose.Types.ObjectId.isValid(
-        customer
-      )
-    ) {
-      return res.status(400).json({
-        message:
-          "Invalid customer ID",
-      });
-    }
-
-    /* ==================================================
-       QUOTE ID
-    ================================================== */
-
-    if (
-      quote &&
-      !mongoose.Types.ObjectId.isValid(
-        quote
-      )
-    ) {
-      return res.status(400).json({
-        message:
-          "Invalid quote ID",
-      });
-    }
-
-    /* ==================================================
-       NUMBERS
-    ================================================== */
-
-    const numericWeight =
-      Number(weight);
-
-    const numericQuantity =
-      quantity === undefined ||
-      quantity === null ||
-      quantity === ""
-        ? 1
-        : Number(quantity);
-
-    const subtotal =
-      Number(price);
-
-    if (
-      !Number.isFinite(
-        numericWeight
-      ) ||
-      numericWeight <= 0
-    ) {
-      return res.status(400).json({
-        message:
-          "Weight must be greater than 0",
-      });
-    }
-
-    if (
-      !Number.isFinite(
-        numericQuantity
-      ) ||
-      numericQuantity < 1
-    ) {
-      return res.status(400).json({
-        message:
-          "Quantity must be at least 1",
-      });
-    }
-
-    if (
-      !Number.isFinite(
-        subtotal
-      ) ||
-      subtotal < 0
-    ) {
-      return res.status(400).json({
-        message:
-          "Price must be a valid amount",
-      });
-    }
-
-    /* ==================================================
-       DELIVERY DATE
-    ================================================== */
-
-    const estimatedDelivery =
-      calculateEstimatedDelivery(
-        deliveryRange
-      );
-
-    if (!estimatedDelivery) {
-      return res.status(400).json({
-        message:
-          "Invalid delivery range. Use 1–3 or 6–10 business days",
-      });
-    }
-
-    /* ==================================================
-       VAT
-    ================================================== */
-
-    const vatPercent =
-      getVatPercentByCountry(
-        country
-      );
-
-    const tax =
-      (subtotal * vatPercent) /
-      100;
-
-    const discount = 0;
-
-    const total =
-      subtotal +
-      tax -
-      discount;
-
-    /* ==================================================
-       IDENTIFIERS
-    ================================================== */
-
-    const trackingNumber =
-      generateTracking();
-
-    const invoiceNumber =
-      generateInvoiceNumber();
-
-    /* ==================================================
-       GEOCODE ORIGIN
-    ================================================== */
-
-    const originCoordinates =
-      await geocodeLocation(
+export const createShipment =
+  async (req, res) => {
+    try {
+      const {
+        customer,
+        quote,
+        sender,
+        receiver,
         origin,
-        ""
-      );
+        destination,
+        weight,
+        quantity,
+        deliveryRange,
+        price,
+        city,
+        country,
+        adminNote,
+        paymentMethod,
+      } = req.body;
 
-    let finalOriginCoordinates =
-      originCoordinates;
+      /* ==================================================
+         VALIDATION
+      ================================================== */
 
-    if (
-      finalOriginCoordinates.lat ===
-        null ||
-      finalOriginCoordinates.lng ===
-        null
-    ) {
-      finalOriginCoordinates =
-        await geocodeLocation(
-          city,
+      if (
+        !sender?.name ||
+        !sender?.phone ||
+        !sender?.address ||
+        !receiver?.name ||
+        !receiver?.phone ||
+        !receiver?.address ||
+        !origin ||
+        !destination ||
+        weight ===
+          undefined ||
+        weight === null ||
+        deliveryRange ===
+          undefined ||
+        deliveryRange === null ||
+        price ===
+          undefined ||
+        price === null ||
+        !city ||
+        !country
+      ) {
+        return res.status(400).json({
+          message:
+            "Missing required shipment details",
+        });
+      }
+
+      /* ==================================================
+         CUSTOMER ID
+      ================================================== */
+
+      if (
+        customer &&
+        !mongoose.Types.ObjectId.isValid(
+          customer
+        )
+      ) {
+        return res.status(400).json({
+          message:
+            "Invalid customer ID",
+        });
+      }
+
+      /* ==================================================
+         QUOTE ID
+      ================================================== */
+
+      if (
+        quote &&
+        !mongoose.Types.ObjectId.isValid(
+          quote
+        )
+      ) {
+        return res.status(400).json({
+          message:
+            "Invalid quote ID",
+        });
+      }
+
+      /* ==================================================
+         NUMBERS
+      ================================================== */
+
+      const numericWeight =
+        Number(weight);
+
+      const numericQuantity =
+        quantity ===
+          undefined ||
+        quantity === null ||
+        quantity === ""
+          ? 1
+          : Number(quantity);
+
+      const subtotal =
+        Number(price);
+
+      if (
+        !Number.isFinite(
+          numericWeight
+        ) ||
+        numericWeight <= 0
+      ) {
+        return res.status(400).json({
+          message:
+            "Weight must be greater than 0",
+        });
+      }
+
+      if (
+        !Number.isFinite(
+          numericQuantity
+        ) ||
+        numericQuantity < 1
+      ) {
+        return res.status(400).json({
+          message:
+            "Quantity must be at least 1",
+        });
+      }
+
+      if (
+        !Number.isFinite(
+          subtotal
+        ) ||
+        subtotal < 0
+      ) {
+        return res.status(400).json({
+          message:
+            "Price must be a valid amount",
+        });
+      }
+
+      /* ==================================================
+         DELIVERY DATE
+      ================================================== */
+
+      const estimatedDelivery =
+        calculateEstimatedDelivery(
+          deliveryRange
+        );
+
+      if (!estimatedDelivery) {
+        return res.status(400).json({
+          message:
+            "Invalid delivery range. Use 1–3 or 6–10 business days",
+        });
+      }
+
+      /* ==================================================
+         VAT
+      ================================================== */
+
+      const vatPercent =
+        getVatPercentByCountry(
           country
         );
-    }
 
-    /* ==================================================
-       GEOCODE DESTINATION
-    ================================================== */
+      const tax =
+        (subtotal *
+          vatPercent) /
+        100;
 
-    const destinationCoordinates =
-      await geocodeLocation(
-        destination,
-        ""
-      );
+      const discount = 0;
 
-    /* ==================================================
-       CREATE SHIPMENT
-    ================================================== */
+      const total =
+        subtotal +
+        tax -
+        discount;
 
-    const shipment =
-      await Shipment.create({
-        trackingNumber,
+      /* ==================================================
+         IDENTIFIERS
+      ================================================== */
 
-        customer:
-          customer || null,
+      const trackingNumber =
+        generateTracking();
 
-        quote:
-          quote || null,
+      const invoiceNumber =
+        generateInvoiceNumber();
 
-        sender: {
-          name:
-            sender.name,
+      /* ==================================================
+         GEOCODE ORIGIN
+      ================================================== */
 
-          email:
-            sender.email || "",
+      let originCoordinates =
+        await geocodeLocation(
+          origin
+        );
 
-          phone:
-            sender.phone,
+      if (
+        originCoordinates.lat ===
+          null ||
+        originCoordinates.lng ===
+          null
+      ) {
+        originCoordinates =
+          await geocodeLocation(
+            city,
+            country
+          );
+      }
 
-          address:
-            sender.address,
-        },
+      /* ==================================================
+         GEOCODE DESTINATION
+      ================================================== */
 
-        receiver: {
-          name:
-            receiver.name,
+      const destinationCoordinates =
+        await geocodeLocation(
+          destination
+        );
 
-          email:
-            receiver.email || "",
+      /* ==================================================
+         CREATE SHIPMENT
+      ================================================== */
 
-          phone:
-            receiver.phone,
+      const shipment =
+        await Shipment.create({
+          trackingNumber,
 
-          address:
-            receiver.address,
-        },
+          customer:
+            customer || null,
 
-        origin:
-          String(origin).trim(),
+          quote:
+            quote || null,
 
-        destination:
-          String(destination).trim(),
+          sender: {
+            name:
+              sender.name,
 
-        city:
-          String(city).trim(),
+            email:
+              sender.email || "",
 
-        country:
-          String(country).trim(),
+            phone:
+              sender.phone,
 
-        currentLocation: {
+            address:
+              sender.address,
+          },
+
+          receiver: {
+            name:
+              receiver.name,
+
+            email:
+              receiver.email || "",
+
+            phone:
+              receiver.phone,
+
+            address:
+              receiver.address,
+          },
+
+          origin:
+            String(
+              origin
+            ).trim(),
+
+          destination:
+            String(
+              destination
+            ).trim(),
+
           city:
-            String(city).trim(),
+            String(
+              city
+            ).trim(),
 
           country:
-            String(country).trim(),
+            String(
+              country
+            ).trim(),
+
+          currentLocation: {
+            city:
+              String(
+                city
+              ).trim(),
+
+            country:
+              String(
+                country
+              ).trim(),
+
+            lat:
+              originCoordinates.lat,
+
+            lng:
+              originCoordinates.lng,
+
+            updatedAt:
+              new Date(),
+          },
+
+          weight:
+            numericWeight,
+
+          quantity:
+            numericQuantity,
+
+          deliveryRange:
+            String(
+              deliveryRange
+            ).trim(),
+
+          estimatedDelivery,
+
+          price:
+            subtotal,
+
+          invoice: {
+            subtotal,
+
+            vatPercent,
+
+            tax,
+
+            discount,
+
+            total,
+
+            currency:
+              "$",
+          },
+
+          paymentMethod:
+            paymentMethod ||
+            "Cash",
+
+          invoiceStatus:
+            "Paid",
+
+          invoiceNumber,
+
+          invoiceIssuedAt:
+            new Date(),
+
+          paidAt:
+            new Date(),
+
+          invoicePublic:
+            true,
+
+          invoiceWatermark:
+            "PAID",
+
+          adminNote:
+            adminNote || "",
+
+          /* ============================================
+             OVERALL SHIPMENT
+          ============================================ */
+
+          status:
+            "Booked",
+
+          progress:
+            0,
+
+          /* ============================================
+             CURRENT CUSTOMS SUMMARY
+          ============================================ */
+
+          customsStage:
+            null,
+
+          customs: {
+            stage:
+              null,
+
+            progress:
+              0,
+
+            startedAt:
+              null,
+
+            checkedAt:
+              null,
+
+            releasedAt:
+              null,
+
+            agentReceivedAt:
+              null,
+
+            note:
+              "",
+          },
+
+          /* ============================================
+             CUSTOMS HISTORY
+          ============================================ */
+
+          customsClearances:
+            [],
+
+          isDelivered:
+            false,
+
+          deliveredAt:
+            null,
+        });
+
+      /* ==================================================
+         INITIAL TRACKING EVENT
+      ================================================== */
+
+      const initialTracking =
+        await Tracking.create({
+          shipment:
+            shipment._id,
+
+          trackingNumber,
+
+          status:
+            "Booked",
+
+          /*
+           * OVERALL SHIPMENT PROGRESS
+           */
+          progress:
+            0,
+
+          /*
+           * CUSTOMS PROGRESS IS SEPARATE
+           */
+          customsProgress:
+            0,
+
+          customsStage:
+            null,
+
+          customsStageIndex:
+            null,
+
+          city:
+            shipment.city,
+
+          country:
+            shipment.country,
 
           lat:
-            finalOriginCoordinates.lat,
+            originCoordinates.lat,
 
           lng:
-            finalOriginCoordinates.lng,
+            originCoordinates.lng,
 
-          updatedAt:
-            new Date(),
-        },
+          originLat:
+            originCoordinates.lat,
 
-        weight:
-          numericWeight,
+          originLng:
+            originCoordinates.lng,
 
-        quantity:
-          numericQuantity,
+          destinationLat:
+            destinationCoordinates.lat,
 
-        deliveryRange:
-          String(
-            deliveryRange
-          ).trim(),
+          destinationLng:
+            destinationCoordinates.lng,
 
-        estimatedDelivery,
+          destinationCity:
+            shipment.destination,
 
-        price:
-          subtotal,
+          destinationCountry:
+            "",
 
-        invoice: {
-          subtotal,
+          estimatedArrival:
+            shipment.estimatedDelivery,
 
-          vatPercent,
+          message:
+            "Shipment booked. Thank you for choosing Epex Logistics",
 
-          tax,
+          sender:
+            buildSenderSnapshot(
+              shipment
+            ),
 
-          discount,
+          receiver:
+            buildReceiverSnapshot(
+              shipment
+            ),
 
-          total,
-
-          currency:
-            "$",
-        },
-
-        paymentMethod:
-          paymentMethod ||
-          "Cash",
-
-        invoiceStatus:
-          "Paid",
-
-        invoiceNumber,
-
-        invoiceIssuedAt:
-          new Date(),
-
-        paidAt:
-          new Date(),
-
-        invoicePublic:
-          true,
-
-        invoiceWatermark:
-          "PAID",
-
-        adminNote:
-          adminNote || "",
-
-        status:
-          "Booked",
-
-        progress:
-          0,
-
-        customsStage:
-          null,
-
-        customs: {
-          stage:
-            null,
-        },
-
-        isDelivered:
-          false,
-
-        deliveredAt:
-          null,
-      });
-
-    /* ==================================================
-       INITIAL TRACKING EVENT
-    ================================================== */
-
-    const initialTracking =
-      await Tracking.create({
-        shipment:
-          shipment._id,
-
-        trackingNumber,
-
-        status:
-          "Booked",
-
-        progress:
-          0,
-
-        customsStage:
-          null,
-
-        customsStageIndex:
-          null,
-
-        city:
-          shipment.city,
-
-        country:
-          shipment.country,
-
-        lat:
-          finalOriginCoordinates.lat,
-
-        lng:
-          finalOriginCoordinates.lng,
-
-        originLat:
-          finalOriginCoordinates.lat,
-
-        originLng:
-          finalOriginCoordinates.lng,
-
-        destinationLat:
-          destinationCoordinates.lat,
-
-        destinationLng:
-          destinationCoordinates.lng,
-
-        destinationCity:
-          shipment.destination,
-
-        destinationCountry:
-          "",
-
-        estimatedArrival:
-          shipment.estimatedDelivery,
-
-        message:
-          "Shipment booked. Thank you for choosing Epex Logistics",
-
-        sender:
-          buildSenderSnapshot(
-            shipment
-          ),
-
-        receiver:
-          buildReceiverSnapshot(
-            shipment
-          ),
-
-        shipmentInfo:
-          buildShipmentSnapshot(
-            shipment
-          ),
-      });
-
-    /* ==================================================
-       EMAIL SENDER
-    ================================================== */
-
-    if (
-      shipment.sender?.email
-    ) {
-      try {
-        await sendEmail({
-          to:
-            shipment.sender.email,
-
-          subject:
-            `Shipment Booked – ${trackingNumber}`,
-
-          html: `
-            <div style="font-family:Arial,sans-serif;line-height:1.6;color:#222">
-
-              <h2>📦 Shipment Successfully Booked</h2>
-
-              <p>
-                Hello ${escapeHtml(
-                  shipment.sender.name
-                )},
-              </p>
-
-              <p>
-                Your shipment has been created successfully with Epex Logistics.
-              </p>
-
-              <p>
-                <strong>Tracking Number:</strong>
-                ${escapeHtml(
-                  trackingNumber
-                )}
-              </p>
-
-              <p>
-                <strong>Route:</strong>
-                ${escapeHtml(
-                  origin
-                )}
-                →
-                ${escapeHtml(
-                  destination
-                )}
-              </p>
-
-              <p>
-                <strong>Estimated Delivery:</strong>
-                ${estimatedDelivery.toDateString()}
-              </p>
-
-              <hr />
-
-              <p>
-                Track your shipment anytime:
-                <br />
-                https://epexlogistics.com/track
-              </p>
-
-              <br />
-
-              <strong>Epex Logistics</strong>
-              <br />
-              support@epexlogistics.com
-
-            </div>
-          `,
+          shipmentInfo:
+            buildShipmentSnapshot(
+              shipment
+            ),
         });
-      } catch (emailError) {
-        console.error(
-          "Shipment creation email failed:",
-          emailError.message
-        );
+
+      /* ==================================================
+         EMAIL
+      ================================================== */
+
+      if (
+        shipment.sender?.email
+      ) {
+        try {
+          await sendEmail({
+            to:
+              shipment.sender.email,
+
+            subject:
+              `Shipment Booked – ${trackingNumber}`,
+
+            html: `
+              <div style="font-family:Arial,sans-serif;line-height:1.6;color:#222">
+
+                <h2>📦 Shipment Successfully Booked</h2>
+
+                <p>
+                  Hello ${escapeHtml(
+                    shipment.sender.name
+                  )},
+                </p>
+
+                <p>
+                  Your shipment has been created successfully with Epex Logistics.
+                </p>
+
+                <p>
+                  <strong>Tracking Number:</strong>
+                  ${escapeHtml(
+                    trackingNumber
+                  )}
+                </p>
+
+                <p>
+                  <strong>Route:</strong>
+                  ${escapeHtml(
+                    origin
+                  )}
+                  →
+                  ${escapeHtml(
+                    destination
+                  )}
+                </p>
+
+                <p>
+                  <strong>Estimated Delivery:</strong>
+                  ${estimatedDelivery.toDateString()}
+                </p>
+
+                <hr />
+
+                <p>
+                  Track your shipment anytime:
+                  <br />
+                  https://epexlogistics.com/track
+                </p>
+
+                <br />
+
+                <strong>Epex Logistics</strong>
+                <br />
+                support@epexlogistics.com
+
+              </div>
+            `,
+          });
+        } catch (emailError) {
+          console.error(
+            "Shipment creation email failed:",
+            emailError.message
+          );
+        }
       }
-    }
 
-    /* ==================================================
-       RESPONSE
-    ================================================== */
+      /* ==================================================
+         RESPONSE
+      ================================================== */
 
-    res.status(201).json({
-      message:
-        "Shipment created successfully",
-
-      shipment,
-
-      tracking:
-        initialTracking,
-    });
-  } catch (error) {
-    console.error(
-      "Create shipment error:",
-      error
-    );
-
-    if (
-      error.code === 11000
-    ) {
-      return res.status(400).json({
+      res.status(201).json({
         message:
-          "Tracking number or invoice number already exists. Please try again.",
+          "Shipment created successfully",
+
+        shipment,
+
+        tracking:
+          initialTracking,
+      });
+    } catch (error) {
+      console.error(
+        "Create shipment error:",
+        error
+      );
+
+      if (
+        error.code === 11000
+      ) {
+        return res.status(400).json({
+          message:
+            "Tracking number or invoice number already exists. Please try again.",
+        });
+      }
+
+      res.status(500).json({
+        message:
+          error.message ||
+          "Failed to create shipment",
       });
     }
-
-    res.status(500).json({
-      message:
-        error.message ||
-        "Failed to create shipment",
-    });
-  }
-};
+  };
 
 /* ======================================================
    🧾 PUBLIC INVOICE
@@ -1121,12 +1834,18 @@ export const getPublicShipmentInvoice =
 
       const shipment =
         await Shipment.findOne({
-          trackingNumber,
+          trackingNumber:
+            String(
+              trackingNumber
+            )
+              .trim()
+              .toUpperCase(),
         });
 
       if (
         !shipment ||
-        shipment.invoicePublic !== true
+        shipment.invoicePublic !==
+          true
       ) {
         return res.status(404).json({
           message:
@@ -1174,9 +1893,16 @@ export const getPublicShipmentInvoice =
           status:
             shipment.status,
 
+          /*
+           * OVERALL SHIPMENT PROGRESS
+           */
           progress:
-            shipment.progress ?? 0,
+            shipment.progress ??
+            0,
 
+          /*
+           * CURRENT CUSTOMS SUMMARY
+           */
           customsStage:
             shipment.customsStage ||
             null,
@@ -1184,6 +1910,13 @@ export const getPublicShipmentInvoice =
           customs:
             shipment.customs ||
             null,
+
+          /*
+           * COMPLETE CUSTOMS HISTORY
+           */
+          customsClearances:
+            shipment.customsClearances ||
+            [],
 
           currentLocation:
             shipment.currentLocation ||
@@ -1202,27 +1935,33 @@ export const getPublicShipmentInvoice =
 
           subtotal:
             shipment.invoice
-              ?.subtotal ?? 0,
+              ?.subtotal ??
+            0,
 
           vatPercent:
             shipment.invoice
-              ?.vatPercent ?? 0,
+              ?.vatPercent ??
+            0,
 
           tax:
             shipment.invoice
-              ?.tax ?? 0,
+              ?.tax ??
+            0,
 
           discount:
             shipment.invoice
-              ?.discount ?? 0,
+              ?.discount ??
+            0,
 
           total:
             shipment.invoice
-              ?.total ?? 0,
+              ?.total ??
+            0,
 
           currency:
             shipment.invoice
-              ?.currency || "$",
+              ?.currency ||
+            "$",
 
           paidAt:
             shipment.paidAt,
@@ -1248,7 +1987,8 @@ export const getPublicShipmentInvoice =
 export const getShipmentInvoice =
   async (req, res) => {
     try {
-      const { id } = req.params;
+      const { id } =
+        req.params;
 
       if (
         !mongoose.Types.ObjectId.isValid(
@@ -1306,9 +2046,20 @@ export const getShipmentInvoice =
 
 /* ======================================================
    🚚 UPDATE SHIPMENT STATUS
-   + PROGRESS
-   + LOCATION
-   + CUSTOMS STAGE
+======================================================
+
+   THIS FUNCTION CONTROLS TWO COMPLETELY SEPARATE
+   PROGRESS SYSTEMS.
+
+   SYSTEM 1:
+   shipment.progress
+
+   SYSTEM 2:
+   customsClearances[].progress
+
+   CUSTOMS 100% DOES NOT EQUAL SHIPMENT 100%.
+
+   ONLY "Delivered" = shipment.progress 100%.
 ====================================================== */
 
 export const updateShipmentStatus =
@@ -1319,16 +2070,24 @@ export const updateShipmentStatus =
         city,
         country,
         message,
+
         lat,
         lng,
-        progress,
-        customsStage,
-        estimatedArrival,
         coordinates,
+
+        customsStage,
+
+        airport,
+        airportCode,
+        terminal,
+
+        customsNotes,
+
+        estimatedArrival,
       } = req.body;
 
       /* ==================================================
-         VALIDATION
+         BASIC VALIDATION
       ================================================== */
 
       if (
@@ -1354,27 +2113,34 @@ export const updateShipmentStatus =
       }
 
       /* ==================================================
-         NORMALIZE CUSTOMS STAGE
+         CUSTOMS STAGE
       ================================================== */
 
-      const normalizedCustomsStage =
-        status ===
-        "Customs Clearance"
-          ? normalizeCustomsStage(
-              customsStage
-            )
-          : null;
-
-      /* ==================================================
-         CUSTOMS VALIDATION
-      ================================================== */
+      let normalizedCustomsStage =
+        null;
 
       if (
         status ===
         "Customs Clearance"
       ) {
+        normalizedCustomsStage =
+          normalizeCustomsStage(
+            customsStage
+          );
+
+        /*
+         * If the admin enters Customs Clearance
+         * without selecting a stage, start from scratch.
+         */
+
         if (
-          normalizedCustomsStage &&
+          !normalizedCustomsStage
+        ) {
+          normalizedCustomsStage =
+            "Prepared for Customs";
+        }
+
+        if (
           !CUSTOMS_STAGES.includes(
             normalizedCustomsStage
           )
@@ -1387,8 +2153,8 @@ export const updateShipmentStatus =
       }
 
       /*
-       * Customs stage must NOT be attached
-       * to another shipment status.
+       * Customs stage cannot be attached to
+       * normal shipment statuses.
        */
 
       if (
@@ -1406,7 +2172,8 @@ export const updateShipmentStatus =
          FIND SHIPMENT
       ================================================== */
 
-      const { id } = req.params;
+      const { id } =
+        req.params;
 
       if (
         !mongoose.Types.ObjectId.isValid(
@@ -1431,109 +2198,97 @@ export const updateShipmentStatus =
 
       /* ==================================================
          DELIVERY LOCK
+      ==================================================
+
+         ONLY Delivered locks the shipment.
+
+         Customs 100% DOES NOT lock it.
       ================================================== */
 
       if (
-        shipment.isDelivered
+        shipment.isDelivered ===
+        true
       ) {
         return res.status(400).json({
           message:
-            "Shipment already delivered. Updates locked.",
+            "Shipment already delivered. Updates are locked.",
         });
       }
 
       /* ==================================================
-         PROGRESS
+         REMEMBER PREVIOUS STATE
       ================================================== */
 
-      let shipmentProgress =
-        normalizeProgress(
-          progress,
-          status,
-          shipment.progress ?? 0
+      const previousStatus =
+        shipment.status;
+
+      const wasInCustoms =
+        previousStatus ===
+        "Customs Clearance";
+
+      const previousCustomsStage =
+        shipment.customsStage ||
+        shipment.customs?.stage ||
+        null;
+
+      const previousCustomsProgress =
+        Number(
+          shipment.customs
+            ?.progress ?? 0
         );
 
-      if (
-        shipmentProgress === null
-      ) {
-        return res.status(400).json({
-          message:
-            "Progress must be a valid number between 0 and 100",
-        });
-      }
+      /* ==================================================
+         OVERALL SHIPMENT PROGRESS
+      ==================================================
 
-      /*
-       * CUSTOMS PROGRESS IS CONTROLLED
-       * BY THE CUSTOMS STAGE.
-       */
+         IMPORTANT:
 
-      if (
-        status ===
-          "Customs Clearance" &&
-        normalizedCustomsStage
-      ) {
-        shipmentProgress =
-          CUSTOMS_PROGRESS[
-            normalizedCustomsStage
-          ];
-      }
+         We deliberately DO NOT use req.body.progress.
 
-      /*
-       * 100% is allowed for:
-       *
-       * 1. Delivered
-       * 2. Customs Clearance +
-       *    Given to Our Agent
-       */
+         The backend determines overall shipment progress
+         from the shipment status.
 
-      const customsCompleted =
-        status ===
-          "Customs Clearance" &&
-        normalizedCustomsStage ===
-          "Given to Our Agent";
+         This prevents the frontend from accidentally
+         sending customs progress as shipment progress.
+      ================================================== */
+
+      const shipmentProgress =
+        STATUS_PROGRESS[
+          status
+        ];
 
       if (
         shipmentProgress ===
-          100 &&
-        status !== "Delivered" &&
-        !customsCompleted
+        undefined
       ) {
         return res.status(400).json({
           message:
-            "A shipment at 100% progress must have Delivered status unless customs clearance has been completed.",
+            "Unable to determine shipment progress from status",
         });
       }
 
       /* ==================================================
-         LOCATION
+         LOCATION COORDINATES
       ================================================== */
 
-      let coordinatesInput =
+      let finalCoordinates =
         normalizeCoordinates(
           lat,
           lng
         );
 
       if (
-        coordinatesInput.lat ===
+        finalCoordinates.lat ===
           null ||
-        coordinatesInput.lng ===
+        finalCoordinates.lng ===
           null
       ) {
-        coordinatesInput =
+        finalCoordinates =
           normalizeCoordinates(
             coordinates?.lat,
             coordinates?.lng
           );
       }
-
-      let finalCoordinates =
-        coordinatesInput;
-
-      /*
-       * If admin didn't provide coordinates,
-       * geocode the supplied city/country.
-       */
 
       if (
         finalCoordinates.lat ===
@@ -1584,17 +2339,37 @@ export const updateShipmentStatus =
         originLat === null ||
         originLng === null
       ) {
-        const origin =
+        const originCoordinates =
           await geocodeLocation(
-            shipment.city,
-            shipment.country
+            shipment.origin
           );
 
         originLat =
-          origin.lat;
+          originCoordinates.lat;
 
         originLng =
-          origin.lng;
+          originCoordinates.lng;
+
+        /*
+         * Fallback to original shipment location.
+         */
+
+        if (
+          originLat === null ||
+          originLng === null
+        ) {
+          const fallbackOrigin =
+            await geocodeLocation(
+              shipment.city,
+              shipment.country
+            );
+
+          originLat =
+            fallbackOrigin.lat;
+
+          originLng =
+            fallbackOrigin.lng;
+        }
       }
 
       /* ==================================================
@@ -1605,17 +2380,16 @@ export const updateShipmentStatus =
         destinationLat === null ||
         destinationLng === null
       ) {
-        const destination =
+        const destinationCoordinates =
           await geocodeLocation(
-            shipment.destination,
-            ""
+            shipment.destination
           );
 
         destinationLat =
-          destination.lat;
+          destinationCoordinates.lat;
 
         destinationLng =
-          destination.lng;
+          destinationCoordinates.lng;
       }
 
       /* ==================================================
@@ -1623,7 +2397,8 @@ export const updateShipmentStatus =
       ================================================== */
 
       if (
-        status === "Delivered" &&
+        status ===
+          "Delivered" &&
         destinationLat !== null &&
         destinationLng !== null
       ) {
@@ -1637,78 +2412,321 @@ export const updateShipmentStatus =
       }
 
       /* ==================================================
-         CUSTOMS STAGE INDEX
+         CUSTOMS VARIABLES
       ================================================== */
 
-      const customsStageIndex =
-        status ===
-          "Customs Clearance"
-          ? getCustomsStageIndex(
-              normalizedCustomsStage
-            )
-          : null;
+      let currentCustomsProgress =
+        previousCustomsProgress;
+
+      let currentCustomsStage =
+        previousCustomsStage;
+
+      let customsStageIndex =
+        null;
+
+      let currentCustomsClearance =
+        null;
 
       /* ==================================================
-         UPDATE SHIPMENT FIRST
-         
+         CUSTOMS CLEARANCE
+      ================================================== */
+
+      if (
+        status ===
+        "Customs Clearance"
+      ) {
+        /*
+         * Make sure the array exists.
+         */
+
+        if (
+          !Array.isArray(
+            shipment.customsClearances
+          )
+        ) {
+          shipment.customsClearances =
+            [];
+        }
+
+        /* ==============================================
+           CUSTOMS LOCATION
+        ============================================== */
+
+        const customsLocation = {
+          airport:
+            airport || "",
+
+          airportCode:
+            airportCode || "",
+
+          city:
+            String(city).trim(),
+
+          country:
+            String(country).trim(),
+        };
+
+        /* ==============================================
+           FIND ACTIVE CUSTOMS
+        ============================================== */
+
+        let activeResult =
+          {
+            clearance: null,
+            index: -1,
+          };
+
+        /*
+         * If we are already inside the same
+         * Customs Clearance status, update the
+         * existing unfinished operation.
+         */
+
+        if (wasInCustoms) {
+          activeResult =
+            findActiveCustomsClearance(
+              shipment,
+              customsLocation
+            );
+        }
+
+        /*
+         * If the previous status was NOT Customs
+         * Clearance, we intentionally start a NEW
+         * customs operation.
+         *
+         * This is what allows:
+         *
+         * Madrid customs = 100%
+         *
+         * later
+         *
+         * Abu Dhabi customs = 25%
+         *
+         * without touching Madrid.
+         */
+
+        currentCustomsClearance =
+          activeResult.clearance;
+
+        /* ==============================================
+           CREATE NEW CUSTOMS PROCESS
+        ============================================== */
+
+        if (
+          !currentCustomsClearance
+        ) {
+          const newClearance =
+            createCustomsClearance({
+              airport,
+              airportCode,
+              terminal,
+              city,
+              country,
+              coordinates:
+                finalCoordinates,
+              stage:
+                normalizedCustomsStage,
+              notes:
+                customsNotes,
+            });
+
+          shipment.customsClearances.push(
+            newClearance
+          );
+
+          currentCustomsClearance =
+            shipment.customsClearances[
+              shipment.customsClearances
+                .length - 1
+            ];
+        }
+
+        /* ==============================================
+           UPDATE EXISTING CUSTOMS PROCESS
+        ============================================== */
+
+        else {
+          /*
+           * Update location information only when
+           * supplied. Existing values are preserved.
+           */
+
+          if (airport) {
+            currentCustomsClearance.airport =
+              String(
+                airport
+              ).trim();
+          }
+
+          if (airportCode) {
+            currentCustomsClearance.airportCode =
+              String(
+                airportCode
+              )
+                .trim()
+                .toUpperCase();
+          }
+
+          if (terminal) {
+            currentCustomsClearance.terminal =
+              String(
+                terminal
+              ).trim();
+          }
+
+          currentCustomsClearance.city =
+            String(city).trim();
+
+          currentCustomsClearance.country =
+            String(country).trim();
+
+          currentCustomsClearance.lat =
+            finalCoordinates.lat;
+
+          currentCustomsClearance.lng =
+            finalCoordinates.lng;
+
+          applyCustomsStage(
+            currentCustomsClearance,
+            normalizedCustomsStage,
+            customsNotes
+          );
+        }
+
+        /*
+         * For newly-created records,
+         * createCustomsClearance already applied
+         * the selected stage.
+
+         * For existing records,
+         * applyCustomsStage above did it.
+         */
+
+        currentCustomsProgress =
+          Number(
+            currentCustomsClearance.progress ??
+              CUSTOMS_PROGRESS[
+                normalizedCustomsStage
+              ]
+          );
+
+        currentCustomsStage =
+          currentCustomsClearance.stage;
+
+        customsStageIndex =
+          getCustomsStageIndex(
+            currentCustomsStage
+          );
+
+        /*
+         * Sync only the current customs summary.
+         *
+         * This DOES NOT touch shipment.progress.
+         */
+
+        syncCustomsSummary(
+          shipment,
+          currentCustomsClearance
+        );
+      }
+
+      /* ==================================================
+         LEAVING CUSTOMS
+      ==================================================
+
          IMPORTANT:
-         The customs stage is now persisted
-         directly on the Shipment document.
+
+         We preserve the customs history.
+
+         If the latest customs operation was completed,
+         it stays at 100%.
+
+         If it was not completed, it is placed on hold
+         instead of being deleted/reset.
+      ================================================== */
+
+      else {
+        const latestCustoms =
+          getLatestCustomsClearance(
+            shipment
+          );
+
+        if (latestCustoms) {
+          if (
+            isCustomsCompleted(
+              latestCustoms
+            )
+          ) {
+            currentCustomsProgress =
+              Number(
+                latestCustoms.progress ??
+                  100
+              );
+
+            currentCustomsStage =
+              latestCustoms.stage ||
+              "Given to Our Agent";
+          } else {
+            /*
+             * Preserve the unfinished customs
+             * process in history.
+             */
+
+            pauseIncompleteCustoms(
+              shipment
+            );
+
+            currentCustomsProgress =
+              Number(
+                latestCustoms.progress ??
+                  0
+              );
+
+            currentCustomsStage =
+              latestCustoms.stage ||
+              null;
+          }
+        }
+
+        /*
+         * We don't need to make customsStage
+         * control the shipment anymore.
+         *
+         * Historical customs remains in:
+         *
+         * shipment.customsClearances[]
+         */
+      }
+
+      /* ==================================================
+         UPDATE SHIPMENT STATUS
       ================================================== */
 
       shipment.status =
         status;
 
+      /* ==================================================
+         UPDATE OVERALL PROGRESS
+      ==================================================
+
+         THIS IS ALWAYS BASED ON STATUS.
+
+         Customs 100% cannot affect it.
+      ================================================== */
+
       shipment.progress =
         shipmentProgress;
+
+      /* ==================================================
+         UPDATE CURRENT LOCATION
+      ================================================== */
 
       shipment.city =
         String(city).trim();
 
       shipment.country =
         String(country).trim();
-
-      /*
-       * THIS WAS THE MISSING PART.
-       *
-       * Keep Shipment.customsStage synchronized
-       * with the selected customs stage.
-       */
-
-      if (
-        status ===
-        "Customs Clearance"
-      ) {
-        shipment.customsStage =
-          normalizedCustomsStage ||
-          null;
-      } else {
-        shipment.customsStage =
-          null;
-      }
-
-      /*
-       * Keep the nested customs object
-       * synchronized as well.
-       */
-
-      if (
-        !shipment.customs
-      ) {
-        shipment.customs = {};
-      }
-
-      if (
-        status ===
-        "Customs Clearance"
-      ) {
-        shipment.customs.stage =
-          normalizedCustomsStage ||
-          null;
-      } else {
-        shipment.customs.stage =
-          null;
-      }
 
       shipment.currentLocation = {
         city:
@@ -1728,12 +2746,62 @@ export const updateShipmentStatus =
       };
 
       /* ==================================================
+         CUSTOMS SUMMARY
+      ================================================== */
+
+      if (
+        status ===
+        "Customs Clearance"
+      ) {
+        /*
+         * Currently inside customs:
+         * show the active customs operation.
+         */
+
+        syncCustomsSummary(
+          shipment,
+          currentCustomsClearance
+        );
+      } else {
+        /*
+         * We are no longer inside customs.
+         *
+         * Keep the last customs result in the summary
+         * for compatibility, while the complete history
+         * remains in customsClearances[].
+         */
+
+        const latestCustoms =
+          getLatestCustomsClearance(
+            shipment
+          );
+
+        if (latestCustoms) {
+          syncCustomsSummary(
+            shipment,
+            latestCustoms
+          );
+        } else {
+          syncCustomsSummary(
+            shipment,
+            null
+          );
+        }
+      }
+
+      /* ==================================================
          DELIVERED
       ================================================== */
 
       if (
-        status === "Delivered"
+        status ===
+        "Delivered"
       ) {
+        /*
+         * ONLY HERE does overall shipment
+         * progress become 100%.
+         */
+
         shipment.progress =
           100;
 
@@ -1751,6 +2819,43 @@ export const updateShipmentStatus =
       await shipment.save();
 
       /* ==================================================
+         FINAL CUSTOMS VALUES
+      ================================================== */
+
+      const latestSavedCustoms =
+        getLatestCustomsClearance(
+          shipment
+        );
+
+      const finalCustomsProgress =
+        status ===
+          "Customs Clearance"
+          ? Number(
+              currentCustomsProgress
+            )
+          : Number(
+              latestSavedCustoms
+                ?.progress ??
+                shipment.customs
+                  ?.progress ??
+                0
+            );
+
+      const finalCustomsStage =
+        status ===
+          "Customs Clearance"
+          ? currentCustomsStage
+          : latestSavedCustoms
+              ?.stage ||
+            shipment.customsStage ||
+            null;
+
+      const finalCustomsStageIndex =
+        getCustomsStageIndex(
+          finalCustomsStage
+        );
+
+      /* ==================================================
          TRACKING EVENT
       ================================================== */
 
@@ -1764,17 +2869,29 @@ export const updateShipmentStatus =
 
           status,
 
+          /*
+           * ============================================
+           * OVERALL SHIPMENT PROGRESS
+           * ============================================
+           */
+
           progress:
-            shipmentProgress,
+            shipment.progress,
+
+          /*
+           * ============================================
+           * CUSTOMS PROGRESS
+           * ============================================
+           */
+
+          customsProgress:
+            finalCustomsProgress,
 
           customsStage:
-            status ===
-            "Customs Clearance"
-              ? normalizedCustomsStage ||
-                null
-              : null,
+            finalCustomsStage,
 
-          customsStageIndex,
+          customsStageIndex:
+            finalCustomsStageIndex,
 
           city:
             String(city).trim(),
@@ -1832,40 +2949,105 @@ export const updateShipmentStatus =
 
       try {
         const recipients = [
-          shipment.sender
-            ?.email,
-
-          shipment.receiver
-            ?.email,
+          shipment.sender?.email,
+          shipment.receiver?.email,
         ].filter(Boolean);
 
         if (
           recipients.length > 0
         ) {
-          const customsText =
+          let customsText = "";
+
+          if (
             status ===
-              "Customs Clearance" &&
-            normalizedCustomsStage
-              ? `
+            "Customs Clearance"
+          ) {
+            customsText = `
+              <div style="
+                margin:20px 0;
+                padding:15px;
+                border:1px solid #ddd;
+                border-radius:8px;
+              ">
+
+                <h3>
+                  🛃 Customs Clearance
+                </h3>
+
+                <p>
+                  <strong>
+                    Customs Airport:
+                  </strong>
+                  ${escapeHtml(
+                    airport ||
+                      currentCustomsClearance?.airport ||
+                      city
+                  )}
+                </p>
+
+                ${
+                  airportCode
+                    ? `
+                      <p>
+                        <strong>
+                          Airport Code:
+                        </strong>
+                        ${escapeHtml(
+                          airportCode
+                        )}
+                      </p>
+                    `
+                    : ""
+                }
+
+                ${
+                  terminal
+                    ? `
+                      <p>
+                        <strong>
+                          Terminal:
+                        </strong>
+                        ${escapeHtml(
+                          terminal
+                        )}
+                      </p>
+                    `
+                    : ""
+                }
+
                 <p>
                   <strong>
                     Customs Stage:
                   </strong>
                   ${escapeHtml(
-                    normalizedCustomsStage
+                    finalCustomsStage
                   )}
                 </p>
-              `
-              : "";
+
+                <p>
+                  <strong>
+                    Customs Progress:
+                  </strong>
+                  ${finalCustomsProgress}%
+                </p>
+
+              </div>
+            `;
+          }
 
           await sendEmail({
-            to: recipients,
+            to:
+              recipients,
 
             subject:
               `Shipment Update – ${shipment.trackingNumber}`,
 
             html: `
-              <div style="font-family:Arial,sans-serif;line-height:1.6;color:#222">
+              <div style="
+                font-family:Arial,sans-serif;
+                line-height:1.6;
+                color:#222;
+              ">
 
                 <h2>
                   📦 Shipment Status Updated
@@ -1931,6 +3113,7 @@ export const updateShipmentStatus =
                   Epex Logistics
                 </strong>
                 <br />
+
                 support@epexlogistics.com
 
               </div>
@@ -1948,22 +3131,67 @@ export const updateShipmentStatus =
          RESPONSE
       ================================================== */
 
-      res.json({
+      return res.json({
         message:
-          "Shipment status, progress and location updated successfully",
+          "Shipment status, shipment progress, customs progress and location updated successfully",
 
         shipment,
 
         tracking,
 
+        /*
+         * ============================================
+         * OVERALL SHIPMENT PROGRESS
+         * ============================================
+         */
+
         progress:
           shipment.progress,
 
+        /*
+         * ============================================
+         * CURRENT CUSTOMS PROGRESS
+         * ============================================
+         */
+
+        customsProgress:
+          finalCustomsProgress,
+
         customsStage:
-          normalizedCustomsStage,
+          finalCustomsStage,
 
         customsStageIndex:
-          customsStageIndex,
+          finalCustomsStageIndex,
+
+        /*
+         * ============================================
+         * ALL CUSTOMS OPERATIONS
+         * ============================================
+         */
+
+        customsClearances:
+          shipment.customsClearances ||
+          [],
+
+        /*
+         * ============================================
+         * ACTIVE CUSTOMS OPERATION
+         * ============================================
+         */
+
+        activeCustomsClearance:
+          shipment.activeCustomsClearance ||
+          null,
+
+        /*
+         * ============================================
+         * LATEST CUSTOMS OPERATION
+         * ============================================
+         */
+
+        latestCustomsClearance:
+          shipment.latestCustomsClearance ||
+          null,
       });
     } catch (error) {
       console.error(
@@ -1980,12 +3208,12 @@ export const updateShipmentStatus =
       ) {
         return res.status(400).json({
           message:
-            "This protected shipment status has already been recorded.",
+            "A duplicate shipment or tracking record was detected.",
         });
       }
 
       /* ==================================================
-         TRACKING DELIVERY LOCK
+         TRACKING LOCK
       ================================================== */
 
       if (
@@ -1999,7 +3227,26 @@ export const updateShipmentStatus =
         });
       }
 
-      res.status(500).json({
+      /* ==================================================
+         VALIDATION ERROR
+      ================================================== */
+
+      if (
+        error.name ===
+        "ValidationError"
+      ) {
+        return res.status(400).json({
+          message:
+            error.message ||
+            "Shipment validation failed",
+        });
+      }
+
+      /* ==================================================
+         GENERAL ERROR
+      ================================================== */
+
+      return res.status(500).json({
         message:
           error.message ||
           "Failed to update shipment",
@@ -2014,7 +3261,8 @@ export const updateShipmentStatus =
 export const deleteShipment =
   async (req, res) => {
     try {
-      const { id } = req.params;
+      const { id } =
+        req.params;
 
       if (
         !mongoose.Types.ObjectId.isValid(
@@ -2037,10 +3285,18 @@ export const deleteShipment =
         });
       }
 
+      /*
+       * Delete tracking history first.
+       */
+
       await Tracking.deleteMany({
         shipment:
           shipment._id,
       });
+
+      /*
+       * Delete shipment.
+       */
 
       await shipment.deleteOne();
 
